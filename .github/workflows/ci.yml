@@ -1,0 +1,78 @@
+name: CI
+
+# Tourne sur chaque push (toutes branches, pour du feedback rapide en solo)
+# et sur les PR vers main. Deux jobs indépendants (backend/frontend) : un
+# échec côté frontend ne bloque pas le résultat du backend et inversement.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  backend:
+    name: Backend — tests et couverture
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Tests unitaires (logique métier)
+        run: npm test
+
+      # roles.e2e-spec.ts / auth.e2e-spec.ts bootent une vraie app Nest et
+      # tapent sur les vraies routes HTTP, mais KeycloakAuthGuard y est
+      # remplacé par un faux guard piloté par header de test : pas besoin
+      # d'un Postgres ou d'un Keycloak vivants pour ce niveau de test.
+      - name: Tests d'intégration (HTTP, guards + validation réels)
+        run: npm run test:e2e
+
+      - name: Couverture
+        run: npm run test:cov
+
+      - name: Publier le rapport de couverture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage
+
+  frontend:
+    name: Frontend — lint, tests et couverture
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests + couverture
+        run: npm run test:cov
+
+      - name: Publier le rapport de couverture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage

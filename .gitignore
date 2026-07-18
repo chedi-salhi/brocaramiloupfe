@@ -1,0 +1,21 @@
+# Ce fichier couvre la racine du monorepo. backend/ et frontend/ ont chacun
+# leur propre .gitignore pour node_modules, .next, coverage, etc.
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Secrets (au cas où un .env serait ajouté à la racine plus tard)
+.env
+.env.*
+!.env.example
+
+# Uploads locaux (obsolète depuis la migration Cloudinary, mais au cas où)
+backend/uploads/*
+!backend/uploads/.gitkeep

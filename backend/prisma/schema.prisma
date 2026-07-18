@@ -1,0 +1,311 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MethodePaiement {
+  EN_LIGNE
+  A_LA_LIVRAISON
+}
+
+enum EtatCommande {
+  EN_ATTENTE
+  EN_LIVRAISON
+  LIVREE
+  ANNULEE
+}
+
+enum StatutPaiement {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Utilisateur {
+  idUtilisateur    Int      @id @default(autoincrement())
+  keycloakId       String   @unique // sub du token Keycloak, source de vérité de l'identité
+  nom              String
+  prenom           String?
+  email            String   @unique
+  numTelephone     String?
+  adresse          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  roleId           Int?
+  isSuspended      Boolean  @default(false)
+  isVerified       Boolean  @default(false) // cache en lecture, la vérification réelle est gérée par Keycloak
+
+  role             Role?            @relation(fields: [roleId], references: [idRole])
+
+  receivedMessages Message[]        @relation("DestinataireMessages")
+  sentMessages     Message[]        @relation("ExpediteurMessages")
+  messageLectures  MessageLecture[]
+
+  produits         Produit[]
+  commandes        Commande[]
+  commandesLivrees Commande[]       @relation("LivreurCommandes")
+  paiementsConfirmes Paiement[]     @relation("PaiementsConfirmes")
+  favoris          Favori[]
+  annonces         Annonce[]
+  panier           Panier?
+  dashboard        Dashboard?
+
+  @@index([roleId])
+}
+
+model Role {
+  idRole       Int           @id @default(autoincrement())
+  name         String        @unique // "admin" | "client" | "livreur" — doit correspondre au rôle Keycloak
+  utilisateurs Utilisateur[]
+}
+
+model Categorie {
+  idCategorie Int       @id @default(autoincrement())
+  nom         String    @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  produits    Produit[]
+}
+
+model Produit {
+  idProduit      Int               @id @default(autoincrement())
+  nom            String
+  description    String
+  prix           Decimal           @db.Decimal(10, 2)
+  stock          Int
+  categorieId    Int
+  utilisateurId  Int
+  imageUrl       String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  isAvailable    Boolean           @default(true)
+
+  categorie      Categorie         @relation(fields: [categorieId], references: [idCategorie], onDelete: Restrict)
+  utilisateur    Utilisateur       @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Restrict)
+
+  commandes      CommandeProduit[]
+  panierProduits PanierProduit[]   @relation("ProduitPanierProduits")
+  favoris        Favori[]
+
+  @@index([categorieId])
+  @@index([utilisateurId])
+}
+
+model Commande {
+  idCommande       Int               @id @default(autoincrement())
+  utilisateurId    Int
+  etat             EtatCommande      @default(EN_ATTENTE)
+  dateCommande     DateTime          @default(now())
+  montantTotal     Decimal           @db.Decimal(10, 2)
+  livreurId        Int?
+  assignedAt       DateTime?
+  adresseLivraison String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  utilisateur      Utilisateur       @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Restrict)
+  livreur          Utilisateur?      @relation("LivreurCommandes", fields: [livreurId], references: [idUtilisateur], onDelete: SetNull)
+
+  produits         CommandeProduit[]
+  historique       SuiviCommande[]
+  facture          Facture?
+  paiement         Paiement?
+
+  @@index([utilisateurId])
+  @@index([livreurId])
+  @@index([etat])
+}
+
+// Historique horodaté des changements d'état (remplace le champ Json précédent,
+// plus simple à interroger et à afficher dans le suivi de commande)
+model SuiviCommande {
+  idSuivi    Int          @id @default(autoincrement())
+  commandeId Int
+  etat       EtatCommande
+  commentaire String?
+  createdAt  DateTime     @default(now())
+
+  commande   Commande     @relation(fields: [commandeId], references: [idCommande], onDelete: Cascade)
+
+  @@index([commandeId])
+}
+
+model Facture {
+  idFacture     Int      @id @default(autoincrement())
+  numeroFacture String   @unique // référence légale séquentielle, générée côté application
+  commandeId    Int      @unique
+  montant       Decimal  @db.Decimal(10, 2)
+  dateEmission  DateTime @default(now())
+  isPrinted     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  commande      Commande @relation(fields: [commandeId], references: [idCommande], onDelete: Cascade)
+}
+
+model Annonce {
+  idAnnonce     Int      @id @default(autoincrement())
+  titre         String
+  description   String
+  typeMedia     String
+  mediaUrl      String
+  dateDebut     DateTime
+  dateFin       DateTime
+  utilisateurId Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Restrict)
+
+  @@index([utilisateurId])
+}
+
+model Message {
+  idMessage      Int      @id @default(autoincrement())
+  expediteurId   Int
+  destinataireId Int?     // null = message diffusé à tous les utilisateurs
+  isBroadcast    Boolean  @default(false)
+  contenu        String
+  dateEnvoi      DateTime @default(now())
+  isRead         Boolean  @default(false) // pertinent uniquement pour un message direct (destinataireId non nul)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  expediteur     Utilisateur @relation("ExpediteurMessages", fields: [expediteurId], references: [idUtilisateur], onDelete: Restrict)
+  destinataire   Utilisateur? @relation("DestinataireMessages", fields: [destinataireId], references: [idUtilisateur], onDelete: SetNull)
+
+  lectures       MessageLecture[] // statut de lecture par utilisateur, utilisé pour les messages diffusés
+
+  @@index([destinataireId, isRead])
+}
+
+// Statut de lecture par destinataire — nécessaire pour les messages diffusés (isBroadcast = true),
+// où un seul Message peut avoir plusieurs lecteurs avec des statuts différents.
+model MessageLecture {
+  idMessageLecture Int      @id @default(autoincrement())
+  messageId        Int
+  utilisateurId    Int
+  isRead           Boolean  @default(false)
+  readAt           DateTime?
+
+  message          Message     @relation(fields: [messageId], references: [idMessage], onDelete: Cascade)
+  utilisateur      Utilisateur @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Cascade)
+
+  @@unique([messageId, utilisateurId])
+  @@index([utilisateurId, isRead])
+}
+
+model CommandeProduit {
+  idCommandeProduit Int      @id @default(autoincrement())
+  commandeId        Int
+  produitId         Int
+  quantite          Int
+  prixUnitaire      Decimal  @db.Decimal(10, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  commande          Commande @relation(fields: [commandeId], references: [idCommande], onDelete: Cascade)
+  produit           Produit  @relation(fields: [produitId], references: [idProduit], onDelete: Restrict)
+
+  @@index([commandeId])
+  @@index([produitId])
+}
+
+model Paiement {
+  idPaiement       Int             @id @default(autoincrement())
+  commandeId       Int             @unique
+  montant          Decimal         @db.Decimal(10, 2)
+  methodePaiement  MethodePaiement @default(A_LA_LIVRAISON)
+  provider         String?         // ex: "flouci" — dissocié de l'enum pour pouvoir changer de prestataire
+  statut           StatutPaiement  @default(PENDING)
+  datePaiement     DateTime        @default(now())
+  confirmedById    Int?
+  transactionId    String?
+  notificationSent Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  commande         Commande        @relation(fields: [commandeId], references: [idCommande], onDelete: Cascade)
+  confirmedBy      Utilisateur?    @relation("PaiementsConfirmes", fields: [confirmedById], references: [idUtilisateur], onDelete: SetNull)
+}
+
+model Panier {
+  idPanier      Int      @id @default(autoincrement())
+  utilisateurId Int?     @unique
+  sessionId     Int?     @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  utilisateur   Utilisateur?    @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Cascade)
+  session       Session?        @relation(fields: [sessionId], references: [idSession], onDelete: Cascade)
+  produits      PanierProduit[]
+  // Contrainte applicative : exactement un des deux (utilisateurId XOR sessionId) doit être renseigné.
+}
+
+model Session {
+  idSession Int      @id @default(autoincrement())
+  token     String   @unique
+  tempEmail String?  @unique
+  tempData  Json?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  panier    Panier?
+  favoris   Favori[]
+}
+
+model PanierProduit {
+  idPanierProduit Int      @id @default(autoincrement())
+  panierId        Int
+  produitId       Int
+  quantite        Int
+  prixUnitaire    Decimal  @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  panier          Panier   @relation(fields: [panierId], references: [idPanier], onDelete: Cascade)
+  produit         Produit  @relation("ProduitPanierProduits", fields: [produitId], references: [idProduit], onDelete: Restrict)
+
+  @@index([panierId])
+  @@index([produitId])
+}
+
+model Favori {
+  idFavori      Int      @id @default(autoincrement())
+  utilisateurId Int?
+  sessionId     Int?
+  produitId     Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  utilisateur   Utilisateur? @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Cascade)
+  session       Session?     @relation(fields: [sessionId], references: [idSession], onDelete: Cascade)
+  produit       Produit      @relation(fields: [produitId], references: [idProduit], onDelete: Restrict)
+  // Contrainte applicative : exactement un des deux (utilisateurId XOR sessionId) doit être renseigné.
+
+  @@unique([utilisateurId, produitId])
+  @@unique([sessionId, produitId])
+}
+
+model Dashboard {
+  idDashboard        Int      @id @default(autoincrement())
+  utilisateurId      Int      @unique
+  ventesTotales      Decimal  @db.Decimal(12, 2)
+  commandesTotales   Int
+  produitsPopulaires Json
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  utilisateur        Utilisateur @relation(fields: [utilisateurId], references: [idUtilisateur], onDelete: Cascade)
+}
