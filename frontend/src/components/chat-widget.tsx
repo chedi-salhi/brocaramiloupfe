@@ -64,7 +64,7 @@ export function ChatWidget() {
     return () => {
       socket.disconnect();
     };
-  }, [session?.accessToken]);
+  }, [shouldShow, session?.accessToken]);
 
   useEffect(() => {
     if (!contact) return;
@@ -78,9 +78,12 @@ export function ChatWidget() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact?.idUtilisateur, open]);
 
+  // Le scroll est une vraie synchronisation DOM (effet légitime). Remettre
+  // `unread` à zéro n'en est pas une : c'est une conséquence directe du clic
+  // qui ouvre la bulle, donc géré dans le onClick du bouton plutôt qu'ici
+  // (évite un setState synchrone dans le corps de l'effet).
   useEffect(() => {
     if (open) {
-      setUnread(0);
       endRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, open]);
@@ -152,7 +155,13 @@ export function ChatWidget() {
       )}
 
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() =>
+          setOpen((o) => {
+            const next = !o;
+            if (next) setUnread(0);
+            return next;
+          })
+        }
         className="relative h-14 w-14 rounded-full bg-brand text-white shadow-lg flex items-center justify-center text-xl hover:bg-brand-dark transition-colors"
         aria-label="Ouvrir le chat"
       >

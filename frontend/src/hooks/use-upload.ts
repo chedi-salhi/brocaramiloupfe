@@ -29,6 +29,8 @@ export function useUpload() {
       const { url } = await response.json();
       return url as string;
     },
-    [session?.accessToken],
+    // Voir use-api.ts : le React Compiler infère une dépendance sur `session`
+    // entier plutôt que sur `.accessToken` seul.
+    [session],
   );
 }

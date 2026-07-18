@@ -35,6 +35,9 @@ export function useApi() {
       if (response.status === 204) return undefined as T;
       return response.json() as Promise<T>;
     },
-    [session?.accessToken],
+    // Dépendance sur l'objet `session` entier plutôt que juste
+    // `.accessToken` : le React Compiler infère cette dépendance plus large
+    // et refuse de préserver une mémoïsation manuelle plus étroite.
+    [session],
   );
 }

@@ -19,7 +19,12 @@ export function AnnouncementsAdmin({ annonces }: { annonces: Annonce[] }) {
     router.refresh();
   }
 
-  const now = Date.now();
+  // Date.now() est impur : appelé directement pendant le rendu, sa valeur
+  // change à chaque re-render, ce que React considère invalide (règle de
+  // pureté). Un instantané pris une seule fois via l'initialiseur paresseux
+  // de useState suffit ici (page admin, pas besoin d'un "maintenant" qui
+  // tique en direct).
+  const [now] = useState(() => Date.now());
 
   return (
     <div>

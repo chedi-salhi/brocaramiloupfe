@@ -19,17 +19,24 @@ export function DonutChart({ data }: { data: DonutDatum[] }) {
   const total = data.reduce((sum, d) => sum + d.value, 0) || 1;
   const radius = 58;
   const circumference = 2 * Math.PI * radius;
-  let offsetAcc = 0;
+  // Fractions précalculées une seule fois : évite de recalculer d.value/total
+  // dans la boucle de décalage cumulé ci-dessous.
+  const fractions = data.map((d) => d.value / total);
 
   return (
     <div className="flex items-center gap-8 flex-wrap">
       <svg width="150" height="150" viewBox="0 0 150 150" className="-rotate-90 shrink-0">
         <circle cx="75" cy="75" r={radius} fill="none" stroke="var(--surface-muted)" strokeWidth="18" />
-        {data.map((d) => {
-          const fraction = d.value / total;
+        {data.map((d, i) => {
+          const fraction = fractions[i];
           const dash = mounted ? fraction * circumference : 0;
           const gap = circumference - dash;
-          const circle = (
+          // Décalage cumulé des segments précédents, calculé sans muter de
+          // variable externe pendant le rendu (mutation détectée par la
+          // règle de pureté du React Compiler sur l'ancienne version avec
+          // `offsetAcc +=`).
+          const offset = fractions.slice(0, i).reduce((sum, f) => sum + f, 0) * circumference;
+          return (
             <circle
               key={d.label}
               cx="75"
@@ -40,12 +47,10 @@ export function DonutChart({ data }: { data: DonutDatum[] }) {
               strokeWidth="18"
               strokeLinecap="butt"
               strokeDasharray={`${dash} ${gap}`}
-              strokeDashoffset={-offsetAcc}
+              strokeDashoffset={-offset}
               style={{ transition: "stroke-dasharray 700ms ease-out" }}
             />
           );
-          offsetAcc += fraction * circumference;
-          return circle;
         })}
         <text
           x="75"

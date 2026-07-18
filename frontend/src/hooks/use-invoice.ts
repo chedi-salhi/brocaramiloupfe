@@ -21,7 +21,9 @@ export function useInvoice() {
       }
       return response.blob();
     },
-    [session?.accessToken],
+    // Voir use-api.ts : le React Compiler infère une dépendance sur `session`
+    // entier plutôt que sur `.accessToken` seul.
+    [session],
   );
 
   const downloadInvoice = useCallback(

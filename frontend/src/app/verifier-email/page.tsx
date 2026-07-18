@@ -13,15 +13,16 @@ type Status = "loading" | "success" | "error";
 export default function VerifierEmailPage() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
-  const [status, setStatus] = useState<Status>("loading");
-  const [message, setMessage] = useState("");
+  // État initial dérivé directement de la présence du token plutôt que fixé
+  // dans l'effet : ce n'est pas un effet de bord (rien à synchroniser avec un
+  // système externe), donc pas besoin d'un setState synchrone au montage.
+  const [status, setStatus] = useState<Status>(() => (token ? "loading" : "error"));
+  const [message, setMessage] = useState(() =>
+    token ? "" : "Lien invalide : aucun jeton de vérification trouvé.",
+  );
 
   useEffect(() => {
-    if (!token) {
-      setStatus("error");
-      setMessage("Lien invalide : aucun jeton de vérification trouvé.");
-      return;
-    }
+    if (!token) return;
 
     fetch(`${API_URL}/auth/verify-email?token=${encodeURIComponent(token)}`)
       .then(async (res) => {
