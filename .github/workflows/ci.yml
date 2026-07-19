@@ -89,3 +89,32 @@ jobs:
         with:
           name: frontend-coverage
           path: frontend/coverage
+
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    # Ne tourne que si backend + frontend passent : on a besoin des deux
+    # rapports de couverture complets, générés par ces jobs plutôt que
+    # ré-exécutés ici (voir sonar-project.properties).
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # requis par Sonar pour l'analyse de blame/new code
+
+      - name: Récupérer la couverture backend
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage
+
+      - name: Récupérer la couverture frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+
+      - name: Analyse SonarQube Cloud
+        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

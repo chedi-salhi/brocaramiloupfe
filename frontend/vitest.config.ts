@@ -10,7 +10,9 @@ export default defineConfig({
     globals: true,
     coverage: {
       provider: "v8",
-      reporter: ["text", "html"],
+      // "lcov" ajouté pour que SonarCloud puisse lire la couverture (voir
+      // sonar-project.properties : sonar.javascript.lcov.reportPaths).
+      reporter: ["text", "html", "lcov"],
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.test.{ts,tsx}", "src/app/**/*.tsx"],
     },
