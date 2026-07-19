@@ -8,6 +8,9 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["main"]
+  # Bouton "Run workflow" dans l'onglet Actions — utile pour retester la CI
+  # sans avoir à pousser un commit à chaque fois (ou pour une démo).
+  workflow_dispatch:
 
 jobs:
   backend:
