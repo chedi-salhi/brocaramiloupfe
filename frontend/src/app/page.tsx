@@ -1,9 +1,10 @@
 import { apiFetch } from "@/lib/api-client";
-import type { Categorie, Produit } from "@/lib/types";
+import type { Annonce, Categorie, Produit } from "@/lib/types";
 import { ProductCard } from "@/components/product-card";
 import { CatalogueFilters } from "@/components/catalogue-filters";
 import { CategoryMarquee } from "@/components/category-marquee";
 import { FavoritesProvider } from "@/components/favorites-provider";
+import { AnnouncementBanner } from "@/components/announcement-banner";
 
 export default async function Home({
   searchParams,
@@ -16,9 +17,10 @@ export default async function Home({
   if (q) query.set("search", q);
   if (categorieId) query.set("categorieId", categorieId);
 
-  const [produits, categories] = await Promise.all([
+  const [produits, categories, annonces] = await Promise.all([
     apiFetch<Produit[]>(`/products${query.toString() ? `?${query.toString()}` : ""}`),
     apiFetch<Categorie[]>("/categories"),
+    apiFetch<Annonce[]>("/announcements"),
   ]);
 
   return (
@@ -57,6 +59,8 @@ export default async function Home({
           </div>
         </div>
       </section>
+
+      <AnnouncementBanner annonces={annonces} />
 
       <div className="max-w-6xl mx-auto px-6 py-10">
         <h2 className="text-xl font-semibold mb-4">Catalogue</h2>

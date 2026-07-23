@@ -90,6 +90,117 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage
 
+  docker-build:
+    name: Build images Docker (backend + frontend)
+    runs-on: ubuntu-latest
+    # Indépendant des jobs de test : attrape spécifiquement les régressions
+    # de build Docker (Dockerfile cassé, dépendance manquante en prod,
+    # rootDir TypeScript qui change...) qui ne sont jamais exercées par
+    # "npm test" et qu'on a mis des heures à diagnostiquer manuellement
+    # pendant la dockerisation. Pas de push vers un registry : juste "est-ce
+    # que ça build".
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          tags: brocaramilou-backend:ci
+
+      - name: Build image frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          tags: brocaramilou-frontend:ci
+          # Mêmes valeurs bidon que pour DATABASE_URL côté backend : ces
+          # build-args sont figés dans le bundle navigateur (voir
+          # frontend/Dockerfile), mais aucune vraie requête n'est faite
+          # pendant le build, donc des valeurs factices suffisent pour
+          # valider que le build passe.
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://backend:3001
+            NEXT_PUBLIC_SOCKET_URL=http://backend:3001
+            NEXT_PUBLIC_KEYCLOAK_ISSUER=http://keycloak:8080/realms/brocaramilou
+
+  e2e:
+    name: Tests E2E (Playwright, stack Docker complète)
+    runs-on: ubuntu-latest
+    # Suite lourde (build de 2 images + Postgres + Keycloak + vrai navigateur)
+    # — réservée aux PR vers main et au déclenchement manuel, pour ne pas
+    # ralentir le feedback rapide de chaque push (voir commentaire en tête de
+    # fichier). Utilise docker-compose.ci.yml (fixture Keycloak jetable,
+    # aucun secret de dev) plutôt que docker-compose.yml, qui référence des
+    # fichiers gitignorés (backend/.env, frontend/.env.local) absents d'un
+    # checkout frais.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Même contrainte qu'en dev (voir RECOVERY.md, "cookie cross-site
+      # login") : navigateur et Keycloak doivent partager le même nom
+      # d'hôte, "backend" doit aussi être résolvable pour les appels API
+      # faits depuis le navigateur.
+      - name: Résoudre keycloak/backend en local
+        run: |
+          sudo sh -c 'echo "127.0.0.1 keycloak" >> /etc/hosts'
+          sudo sh -c 'echo "127.0.0.1 backend" >> /etc/hosts'
+
+      - name: Démarrer la stack (docker-compose.ci.yml)
+        run: docker compose -f docker-compose.ci.yml up -d --build
+
+      - name: Attendre que le frontend et Keycloak répondent
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://keycloak:3000 >/dev/null 2>&1 && curl -sf http://keycloak:8080/realms/brocaramilou >/dev/null 2>&1; then
+              echo "Stack prête après ${i} tentative(s)"
+              exit 0
+            fi
+            echo "Attente du démarrage... (${i}/60)"
+            sleep 5
+          done
+          echo "::error::Timeout en attendant que la stack soit prête"
+          docker compose -f docker-compose.ci.yml logs
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Installer Playwright
+        working-directory: e2e
+        # Pas de "npm ci" : aucun package-lock.json committé pour l'instant
+        # (un seul devDependency, @playwright/test).
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Lancer la suite Playwright
+        working-directory: e2e
+        env:
+          BASE_URL: http://keycloak:3000
+        run: npm test
+
+      - name: Publier le rapport Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 14
+
+      - name: Logs des conteneurs (si échec)
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs
+
+      - name: Arrêter la stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
   sonarqube:
     name: SonarQube Cloud
     runs-on: ubuntu-latest

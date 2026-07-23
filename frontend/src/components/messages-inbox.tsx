@@ -103,7 +103,9 @@ export function MessagesInbox() {
       });
     });
 
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+    };
   }, [session?.accessToken]);
 
   useEffect(() => {
@@ -192,7 +194,11 @@ export function MessagesInbox() {
                 </div>
               ))
             : messages.map((m) => {
-                const mine = selected !== BROADCASTS && m.expediteurId !== selected?.idUtilisateur;
+                // Déjà dans la branche "selected !== BROADCASTS" (voir le
+                // ternaire ligne 184) : TypeScript narrowe `selected` à
+                // `Contact | null` ici, un nouveau test contre BROADCASTS
+                // serait une comparaison sans chevauchement (erreur TS2367).
+                const mine = m.expediteurId !== selected?.idUtilisateur;
                 return (
                   <div
                     key={m.idMessage}

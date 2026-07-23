@@ -15,6 +15,7 @@ export function FavoriteButton({ produitId }: { produitId: number }) {
       }}
       aria-label={active ? "Retirer des favoris" : "Ajouter aux favoris"}
       aria-pressed={active}
+      data-testid="favorite-button"
       className={`absolute top-2 right-2 z-10 h-8 w-8 rounded-full flex items-center justify-center backdrop-blur-sm transition-all duration-200 active:scale-90 ${
         active
           ? "bg-brand text-white shadow-md"

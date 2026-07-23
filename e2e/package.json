@@ -1,0 +1,16 @@
+{
+  "name": "brocaramilou-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tests end-to-end (Playwright) pour Brocaramilou — exécutés contre la stack docker-compose complète (db + keycloak + backend + frontend), pas de mocks.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0"
+  }
+}

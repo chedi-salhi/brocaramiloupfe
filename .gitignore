@@ -19,3 +19,8 @@ Thumbs.db
 # Uploads locaux (obsolète depuis la migration Cloudinary, mais au cas où)
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# Export du realm Keycloak (voir export-keycloak-realm.ps1) : contient le
+# client secret en clair. Reste local pour l'instant — à ne committer
+# qu'après une passe sécurité (secrets redigés/tournés).
+keycloak/realm-export.json

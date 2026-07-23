@@ -142,7 +142,7 @@ export function LivreurDashboard({ commandes }: { commandes: Commande[] }) {
       ) : (
         <div className="flex flex-col gap-3 stagger">
           {visibles.map((commande) => (
-            <Card key={commande.idCommande} hoverable={false}>
+            <Card key={commande.idCommande} hoverable={false} data-testid={`livreur-order-${commande.idCommande}`}>
               <div className="flex justify-between items-start">
                 <p className="font-medium">Commande #{commande.idCommande}</p>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${BADGE[commande.etat] ?? ""}`}>
@@ -151,8 +151,12 @@ export function LivreurDashboard({ commandes }: { commandes: Commande[] }) {
               </div>
               <p className="text-sm text-foreground/60 mt-1">{commande.adresseLivraison}</p>
               <p className="text-sm text-foreground/60">{commande.montantTotal} DT</p>
-              <DeliveryStatusForm commandeId={commande.idCommande} etatActuel={commande.etat} />
               <PaymentConfirmButton commande={commande} />
+              <DeliveryStatusForm
+                commandeId={commande.idCommande}
+                etatActuel={commande.etat}
+                paiement={commande.paiement}
+              />
             </Card>
           ))}
         </div>

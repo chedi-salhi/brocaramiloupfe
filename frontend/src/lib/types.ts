@@ -9,6 +9,7 @@ export interface Produit {
   categorieId: number;
   isAvailable: boolean;
   imageUrl: string | null;
+  unite: string;
   categorie?: Categorie;
 }
 

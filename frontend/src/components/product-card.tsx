@@ -8,7 +8,7 @@ export function ProductCard({ produit }: { produit: Produit }) {
   const image = resolveMediaUrl(produit.imageUrl);
 
   return (
-    <Card className="flex flex-col gap-3 group">
+    <Card className="flex flex-col gap-3 group" data-testid="product-card">
       <div className="relative aspect-square rounded-lg bg-surface-muted flex items-center justify-center overflow-hidden">
         <FavoriteButton produitId={produit.idProduit} />
         {image ? (
