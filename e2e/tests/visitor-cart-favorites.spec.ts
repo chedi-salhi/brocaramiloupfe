@@ -24,6 +24,14 @@ test.describe("Visiteur — panier et favoris sans compte", () => {
     await expect(page.getByText(nomProduit)).toBeVisible();
 
     await page.goto("/favoris");
-    await expect(page.getByText(nomProduit)).toBeVisible();
+    // getByText(nomProduit) est ambigu ici : ProductCard affiche le nom à la
+    // fois dans le <h2> et, si la description du produit est identique au
+    // nom (arrive avec certains produits saisis à la main côté admin), dans
+    // le <p> de description aussi — strict mode violation (2 éléments
+    // matchés). On cible explicitement le titre du produit plutôt qu'un
+    // texte générique.
+    await expect(
+      page.getByTestId("product-card").getByRole("heading", { name: nomProduit }),
+    ).toBeVisible();
   });
 });
