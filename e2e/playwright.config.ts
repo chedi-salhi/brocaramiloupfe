@@ -10,6 +10,10 @@ const BASE_URL = process.env.BASE_URL ?? "http://keycloak:3000";
 
 export default defineConfig({
   testDir: "./tests",
+  // Crée le catalogue produits minimal requis par la suite si la base est
+  // vierge (voir global-setup.ts) — sans ça, tout scénario qui commence par
+  // "ajouter un produit au panier" échoue au timeout sur une base fraîche.
+  globalSetup: "./tests/global-setup.ts",
   timeout: 30_000,
   expect: { timeout: 8_000 },
   // Les scénarios réutilisent les mêmes comptes de test (panier, commandes,

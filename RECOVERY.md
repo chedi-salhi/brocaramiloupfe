@@ -252,6 +252,20 @@ navigateur, alors que les logs des conteneurs paraissent normaux.
   maintenant en UTF-8 sans BOM (`[System.IO.File]::WriteAllText` avec
   `UTF8Encoding($false)`) — à réutiliser si un autre script génère du SQL.
 
+- **Le catalogue produits n'est jamais seedé par les migrations Prisma**
+  (22/07/2026) : `backend/prisma/seed.ts` ne crée que les rôles
+  (admin/client/livreur), jamais de produit. Sur une base fraîche (CI,
+  `docker-compose.ci.yml`, volume recréé à chaque run), le catalogue est
+  donc vide et toute la suite Playwright échouait au timeout dès le premier
+  "ajouter au panier" (aucune carte produit à cliquer) — passait inaperçu en
+  local parce que la base de dev accumule des produits ajoutés à la main
+  depuis des mois. Corrigé par `e2e/tests/global-setup.ts` : crée 1
+  catégorie + 2 produits via de vrais appels à l'API admin (token Keycloak
+  obtenu par grant `password`, `directAccessGrantsEnabled: true` sur le
+  client `backend`) avant le lancement des tests, idempotent (ne fait rien
+  si le catalogue existe déjà). Enregistré via `globalSetup` dans
+  `playwright.config.ts`.
+
 ## Comptes de test
 
 | Email | Rôle | Mot de passe |
