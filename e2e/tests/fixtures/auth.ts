@@ -39,5 +39,16 @@ export async function loginAs(page: Page, user: TestUser) {
 
 export async function logout(page: Page) {
   await page.getByRole("button", { name: "Déconnexion" }).click();
+
+  // fullSignOut() (lib/full-sign-out.ts) fait d'abord signOut({redirect:
+  // false}) — qui bascule l'UI en "Connexion" quasi instantanément côté
+  // client — PUIS seulement window.location.href vers l'endpoint de logout
+  // Keycloak (vrai aller-retour SSO qui revient sur post_logout_redirect_uri
+  // = "/"). Si on rend la main dès que "Connexion" est visible, ce
+  // round-trip est encore en vol : le prochain loginAs() (plusieurs specs
+  // enchaînent client → admin → livreur dans le même test) entre en course
+  // avec cette navigation et échoue avec net::ERR_ABORTED. On absorbe donc
+  // le round-trip complet avant de continuer.
+  await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 15_000 });
 }
