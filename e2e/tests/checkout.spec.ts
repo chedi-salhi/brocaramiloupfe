@@ -21,8 +21,15 @@ test.describe("Client — passer une commande", () => {
     expect(commandeId).toBeTruthy();
 
     await page.goto("/client/commandes");
-    await expect(page.getByText(`Commande #${commandeId}`)).toBeVisible();
-    await expect(page.getByText("En attente")).toBeVisible();
+    // getByText("En attente") est ambigu ici : workers=1/fullyParallel=false
+    // (voir playwright.config.ts) font tourner tous les specs sur la même
+    // base, donc les commandes créées par des tests précédents dans la même
+    // run (admin-orders, livreur-payment-rule) sont encore "En attente" au
+    // moment où ce test s'exécute — strict mode violation (plusieurs badges
+    // matchés). On scope sur la ligne de la commande qu'on vient de créer.
+    const ligneCommande = page.getByTestId(`commande-row-${commandeId}`);
+    await expect(ligneCommande.getByText(`Commande #${commandeId}`)).toBeVisible();
+    await expect(ligneCommande.getByText("En attente")).toBeVisible();
 
     await logout(page);
   });

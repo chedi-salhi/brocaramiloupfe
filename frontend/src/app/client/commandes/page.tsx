@@ -29,7 +29,11 @@ export default async function CommandesPage() {
       ) : (
         <div className="flex flex-col gap-3 stagger">
           {commandes.map((commande) => (
-            <Link key={commande.idCommande} href={`/client/commandes/${commande.idCommande}`}>
+            <Link
+              key={commande.idCommande}
+              href={`/client/commandes/${commande.idCommande}`}
+              data-testid={`commande-row-${commande.idCommande}`}
+            >
               <Card className="flex justify-between items-center">
                 <div>
                   <p className="font-medium">Commande #{commande.idCommande}</p>
