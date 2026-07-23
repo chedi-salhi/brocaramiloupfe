@@ -8,19 +8,26 @@ const STORAGE_KEY = "brocaramilou_session_token";
 // crypto.randomUUID() n'existe que dans un "contexte sécurisé" (HTTPS, ou
 // http://localhost) — indisponible sur http://keycloak:3000 (hostname
 // personnalisé requis par le mode tout-Docker, voir RECOVERY.md), ce qui
-// jetait "crypto.randomUUID is not a function" et cassait tout appel API
-// dès qu'aucun jeton n'existait encore en localStorage (première visite du
-// navigateur). Pas besoin de vraie sécurité cryptographique ici — juste un
-// identifiant à peu près unique — donc un simple fallback suffit.
+// jetait "crypto.randomUUID is not a function" et cassait tout appel API dès
+// qu'aucun jeton n'existait encore en localStorage (première visite du
+// navigateur). crypto.getRandomValues(), contrairement à randomUUID(), reste
+// disponible en contexte non sécurisé (seul SubtleCrypto y est restreint) —
+// on l'utilise pour construire l'UUID nous-mêmes plutôt que de retomber sur
+// Math.random(), un générateur non cryptographique qu'un scanner de
+// sécurité signale à raison dès qu'il sert à produire un identifiant.
 function generateSessionId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (typeof crypto === "undefined") {
+    return `fallback-${Date.now()}-${Math.trunc(Math.random() * 1e9)}`;
+  }
+  if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = Math.trunc(Math.random() * 16);
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant RFC 4122
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export function getSessionToken(): string {

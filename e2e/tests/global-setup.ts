@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { TEST_USERS } from "./fixtures/auth";
 
 // Le catalogue produits n'est JAMAIS seedé par les migrations Prisma (voir
@@ -16,8 +18,33 @@ const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? "http://keycloak:8080";
 const API_URL = process.env.API_URL ?? "http://backend:3001";
 const REALM = "brocaramilou";
 const CLIENT_ID = "backend";
-const CLIENT_SECRET =
-  process.env.KEYCLOAK_CLIENT_SECRET ?? "ci-e2e-throwaway-secret-do-not-use-in-prod";
+
+// Jamais de secret codé en dur ici, même une valeur jetable de CI (SonarCloud
+// signale à raison tout littéral qui ressemble à un identifiant/secret) :
+// - En CI, la variable d'env KEYCLOAK_CLIENT_SECRET est positionnée par
+//   ci.yml, dérivée à l'exécution de keycloak/ci-realm-export.json (déjà
+//   committé, valeur jetable documentée là-bas).
+// - En local, aucune variable d'env à positionner à la main : on relit
+//   directement backend/.env (gitignoré, jamais commité, donc jamais vu par
+//   Sonar) — le vrai secret du realm de dev.
+function resolveClientSecret(): string {
+  if (process.env.KEYCLOAK_CLIENT_SECRET) {
+    return process.env.KEYCLOAK_CLIENT_SECRET;
+  }
+  try {
+    const envContent = readFileSync(join(__dirname, "..", "..", "backend", ".env"), "utf-8");
+    const match = envContent.match(/^KEYCLOAK_CLIENT_SECRET\s*=\s*"?([^"\r\n]+)"?/m);
+    if (match) {
+      return match[1];
+    }
+  } catch {
+    // backend/.env absent (checkout frais sans setup local) — traité par
+    // l'erreur ci-dessous, avec un message qui dit quoi faire dans les deux cas.
+  }
+  throw new Error(
+    "[global-setup] KEYCLOAK_CLIENT_SECRET introuvable : positionne la variable d'environnement (CI, voir .github/workflows/ci.yml) ou vérifie que backend/.env existe (local, voir RECOVERY.md).",
+  );
+}
 
 const CATEGORIE_NOM = "E2E";
 const PRODUITS = [
@@ -39,6 +66,7 @@ const PRODUITS = [
 // répondent avant de lancer "npm test", mais rien ne garantit explicitement
 // que le backend ait fini "prisma migrate deploy" à cet instant précis.
 async function getAdminToken(): Promise<string> {
+  const clientSecret = resolveClientSecret();
   let lastError: unknown;
   for (let attempt = 1; attempt <= 10; attempt++) {
     try {
@@ -48,7 +76,7 @@ async function getAdminToken(): Promise<string> {
         body: new URLSearchParams({
           grant_type: "password",
           client_id: CLIENT_ID,
-          client_secret: CLIENT_SECRET,
+          client_secret: clientSecret,
           username: TEST_USERS.admin.email,
           password: TEST_USERS.admin.password,
         }),

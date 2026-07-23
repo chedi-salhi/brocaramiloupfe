@@ -183,7 +183,15 @@ jobs:
         working-directory: e2e
         env:
           BASE_URL: http://keycloak:3000
-        run: npm test
+        # KEYCLOAK_CLIENT_SECRET lu depuis keycloak/ci-realm-export.json (déjà
+        # committé, valeur jetable documentée dans ce fichier) plutôt que
+        # recopié en dur ici — sinon SonarCloud signale (à raison) tout
+        # littéral qui ressemble à un identifiant/secret sur du code neuf,
+        # même une valeur de CI sans conséquence. Utilisé par
+        # e2e/tests/global-setup.ts pour créer le catalogue produits de test.
+        run: |
+          export KEYCLOAK_CLIENT_SECRET=$(node -pe "require('../keycloak/ci-realm-export.json').clients.find(c => c.clientId === 'backend').secret")
+          npm test
 
       - name: Publier le rapport Playwright
         if: always()
