@@ -28,19 +28,12 @@ function PaiementRetourContent() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (sessionStatus === "loading") {
-      return;
-    }
-    if (!commandeId) {
-      setStatus("error");
-      setMessage("Commande introuvable dans le lien de retour.");
-      return;
-    }
-    if (sessionStatus === "unauthenticated") {
-      setStatus("error");
-      setMessage(
-        "Ta session a expiré pendant le paiement. Reconnecte-toi, ton paiement PayPal n'a pas été perdu — retente depuis ta commande.",
-      );
+    // commandeId et sessionStatus sont déjà connus de façon synchrone (via
+    // useSearchParams()/useSession()) — pas besoin d'un effet pour ces deux
+    // cas, voir effectiveStatus/effectiveMessage plus bas (évite un
+    // setState synchrone dans le corps de l'effet, que la règle
+    // react-hooks/set-state-in-effect interdit).
+    if (sessionStatus === "loading" || sessionStatus === "unauthenticated" || !commandeId) {
       return;
     }
     api<{ statut: string }>(`/payments/${commandeId}/capture`, { method: "POST" })
@@ -61,16 +54,25 @@ function PaiementRetourContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commandeId, sessionStatus]);
 
+  // commandeId manquant / session expirée : dérivés directement du render,
+  // jamais via l'effet (voir commentaire ci-dessus).
+  const effectiveStatus = !commandeId || sessionStatus === "unauthenticated" ? "error" : status;
+  const effectiveMessage = !commandeId
+    ? "Commande introuvable dans le lien de retour."
+    : sessionStatus === "unauthenticated"
+      ? "Ta session a expiré pendant le paiement. Reconnecte-toi, ton paiement PayPal n'a pas été perdu — retente depuis ta commande."
+      : message;
+
   return (
     <div className="max-w-md mx-auto px-6 py-16 text-center animate-fade-in">
-      {status === "loading" && (
+      {effectiveStatus === "loading" && (
         <>
           <span className="inline-block h-8 w-8 rounded-full border-2 border-border border-t-brand animate-spin mb-4" />
           <p className="text-foreground/70">Confirmation du paiement en cours...</p>
         </>
       )}
 
-      {status === "success" && (
+      {effectiveStatus === "success" && (
         <>
           <p className="text-2xl mb-2">✓</p>
           <h1 className="text-lg font-semibold mb-2">Paiement confirmé</h1>
@@ -85,10 +87,10 @@ function PaiementRetourContent() {
         </>
       )}
 
-      {status === "error" && (
+      {effectiveStatus === "error" && (
         <>
           <h1 className="text-lg font-semibold mb-2 text-red-600">Paiement non confirmé</h1>
-          <p className="text-sm text-foreground/60 mb-6">{message}</p>
+          <p className="text-sm text-foreground/60 mb-6">{effectiveMessage}</p>
           <Link href="/panier">
             <Button variant="outline">Voir mon panier</Button>
           </Link>
