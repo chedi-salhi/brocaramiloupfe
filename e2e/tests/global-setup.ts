@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { TEST_USERS } from "./fixtures/auth";
+import { TEST_USERS, type TestUser } from "./fixtures/auth";
 
 // Le catalogue produits n'est JAMAIS seedé par les migrations Prisma (voir
 // backend/prisma/seed.ts, qui ne crée que les rôles) — sur une base fraîche
@@ -65,7 +65,7 @@ const PRODUITS = [
 // Petite marge de retry : le job CI attend déjà que frontend/Keycloak
 // répondent avant de lancer "npm test", mais rien ne garantit explicitement
 // que le backend ait fini "prisma migrate deploy" à cet instant précis.
-async function getAdminToken(): Promise<string> {
+async function getToken(user: TestUser): Promise<string> {
   const clientSecret = resolveClientSecret();
   let lastError: unknown;
   for (let attempt = 1; attempt <= 10; attempt++) {
@@ -77,8 +77,8 @@ async function getAdminToken(): Promise<string> {
           grant_type: "password",
           client_id: CLIENT_ID,
           client_secret: clientSecret,
-          username: TEST_USERS.admin.email,
-          password: TEST_USERS.admin.password,
+          username: user.email,
+          password: user.password,
         }),
       });
       if (res.ok) {
@@ -92,12 +92,42 @@ async function getAdminToken(): Promise<string> {
     await new Promise((r) => setTimeout(r, 2000));
   }
   throw new Error(
-    `[global-setup] Impossible d'obtenir un token admin après 10 tentatives : ${String(lastError)}`,
+    `[global-setup] Impossible d'obtenir un token pour ${user.email} après 10 tentatives : ${String(lastError)}`,
   );
 }
 
+// AuthService.syncUser (backend/src/auth/auth.service.ts) est le seul endroit
+// qui écrit une ligne Utilisateur locale à partir d'un token Keycloak — il
+// n'est déclenché que par GET /auth/me, que le frontend appelle juste après
+// une connexion réussie (voir auth.controller.ts). Sur une base CI fraîche
+// (docker-compose down -v à chaque run), le compte livreur de test n'a donc
+// aucune ligne Utilisateur tant qu'il ne s'est pas connecté au moins une
+// fois — or aucun spec ne le fait avant qu'admin-orders.spec.ts (premier
+// fichier par ordre alphabétique) tente de l'assigner à une commande, et
+// /admin/commandes ne liste que les Utilisateur déjà en base (voir
+// frontend/src/app/admin/commandes/page.tsx). Le <select> livreur se
+// retrouve alors sans option, avec un timeout Playwright peu explicite à la
+// clé. On force donc la sync des 3 comptes de test ici, une fois pour toute
+// la suite.
+async function syncTestUsers() {
+  for (const user of Object.values(TEST_USERS)) {
+    const token = await getToken(user);
+    const res = await fetch(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`[global-setup] Échec de sync pour ${user.email} (${res.status})`);
+    }
+  }
+}
+
 export default async function globalSetup() {
-  const token = await getAdminToken();
+  // Toujours exécuté, même si le catalogue existe déjà (early return
+  // ci-dessous) : idempotent (GET /auth/me = upsert), et sans ça un rerun
+  // local sur une base déjà seedée sauterait la sync livreur/client.
+  await syncTestUsers();
+
+  const token = await getToken(TEST_USERS.admin);
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
