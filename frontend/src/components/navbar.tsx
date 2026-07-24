@@ -48,19 +48,23 @@ export function Navbar() {
           {/* Un admin n'a pas de raison de parcourir le catalogue (voir aussi
               la redirection "/" -> "/admin" dans proxy.ts). */}
           {!roles.includes("admin") && <NavLink href="/">Catalogue</NavLink>}
-          {/* Panier réservé au visiteur (session anonyme) et au client connecté —
-              ni le livreur ni l'admin n'achètent, donc pas de lien pour eux.
-              Visiteur : juste après le catalogue. Client : entre Favoris et Profil. */}
+          {/* Panier et Favoris réservés au visiteur (session anonyme) et au
+              client connecté — ni le livreur ni l'admin n'achètent, donc pas
+              de lien pour eux. Visiteur : juste après le catalogue.
+              Client : entre Commandes et Profil. */}
           {status !== "authenticated" && (
-            <NavLink href="/panier">
-              Panier
-              <CartBadge />
-            </NavLink>
+            <>
+              <NavLink href="/favoris">Favoris</NavLink>
+              <NavLink href="/panier">
+                Panier
+                <CartBadge />
+              </NavLink>
+            </>
           )}
           {roles.includes("client") && (
             <>
               <NavLink href="/client/commandes">Commandes</NavLink>
-              <NavLink href="/client/favoris">Favoris</NavLink>
+              <NavLink href="/favoris">Favoris</NavLink>
               <NavLink href="/panier">
                 Panier
                 <CartBadge />
@@ -68,7 +72,12 @@ export function Navbar() {
               <NavLink href="/client/profil">Profil</NavLink>
             </>
           )}
-          {roles.includes("livreur") && <NavLink href="/livreur">Livraisons</NavLink>}
+          {roles.includes("livreur") && (
+            <>
+              <NavLink href="/livreur">Livraisons</NavLink>
+              <NavLink href="/livreur/profil">Profil</NavLink>
+            </>
+          )}
           {roles.includes("admin") && (
             <>
               <NavLink href="/admin">Administration</NavLink>

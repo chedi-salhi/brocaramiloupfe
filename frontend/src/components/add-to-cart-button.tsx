@@ -36,6 +36,7 @@ export function AddToCartButton({
       disabled={disabled || status === "loading"}
       variant={status === "done" ? "outline" : "primary"}
       className="w-full"
+      data-testid="add-to-cart-button"
     >
       {status === "loading" && (
         <span className="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" />

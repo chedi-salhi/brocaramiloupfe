@@ -1,0 +1,12 @@
+# Normalise les fins de ligne en LF pour tout le monde, quel que soit l'OS
+# ou l'éditeur (évite les diffs CRLF/LF fantômes comme ceux nettoyés le
+# 2026-07-23 sur backend/*.json, eslint.config.mjs, etc.).
+* text=auto eol=lf
+
+# Fichiers binaires : ne jamais toucher aux fins de ligne
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

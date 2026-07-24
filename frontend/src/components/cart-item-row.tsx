@@ -29,7 +29,9 @@ export function CartItemRow({ item }: { item: PanierProduit }) {
     <Card hoverable={false} className="flex items-center justify-between">
       <div>
         <p className="font-medium">{item.produit.nom}</p>
-        <p className="text-sm text-foreground/60">{item.prixUnitaire} DT / unité</p>
+        <p className="text-sm text-foreground/60">
+          {item.prixUnitaire} DT / {item.produit.unite}
+        </p>
       </div>
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1 rounded-full border border-border">

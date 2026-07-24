@@ -40,15 +40,29 @@ describe('PaymentsService', () => {
       generateForCommande: jest.fn().mockResolvedValue({ idFacture: 1 }),
       sendInvoiceByEmail: jest.fn().mockResolvedValue(undefined),
     };
+    const paypalClient = {
+      createOrder: jest.fn().mockResolvedValue({
+        id: 'PAYPAL-ORDER-1',
+        status: 'CREATED',
+        links: [{ rel: 'approve', href: 'https://paypal.test/approve/1', method: 'GET' }],
+      }),
+      captureOrder: jest.fn().mockResolvedValue({ id: 'PAYPAL-ORDER-1', status: 'COMPLETED' }),
+    };
+    const ordersService = {
+      cancel: jest.fn().mockResolvedValue({ idCommande: 10, etat: 'ANNULEE' }),
+      confirmOnlinePaymentSuccess: jest.fn().mockResolvedValue(undefined),
+    };
 
     const service = new PaymentsService(
       prisma as any,
       authService as any,
       emailService as any,
       invoicesService as any,
+      paypalClient as any,
+      ordersService as any,
     );
 
-    return { service, prisma, authService, emailService, invoicesService };
+    return { service, prisma, authService, emailService, invoicesService, paypalClient, ordersService };
   }
 
   const tokenLivreur = { keycloakId: 'kc-2', email: 'l@test.com', roles: ['livreur'] };
@@ -113,7 +127,7 @@ describe('PaymentsService', () => {
     });
 
     // Régression : jusqu'ici confirmCashPayment ne vérifiait pas le statut avant
-    // d'agir, contrairement à handleCallback (paiement en ligne) qui a bien ce
+    // d'agir, contrairement à captureOnlinePayment (paiement en ligne) qui a bien ce
     // garde-fou. Un double clic front, une requête rejouée, ou deux appels
     // concurrents (admin + livreur) renvoyaient deux fois l'email de facture au
     // client. Ce test verrouille le comportement idempotent attendu — il
@@ -132,38 +146,130 @@ describe('PaymentsService', () => {
     });
   });
 
-  describe('handleCallback', () => {
-    it('marque le paiement SUCCESS et génère la facture quand success=true', async () => {
-      const { service, invoicesService } = makeService(
-        makePaiement({ methodePaiement: MethodePaiement.EN_LIGNE }),
+  const tokenClient = { keycloakId: 'kc-5', email: 'client@test.com', roles: ['client'] };
+
+  describe('initiateOnlinePayment', () => {
+    it("crée la commande PayPal et renvoie le lien d'approbation", async () => {
+      const { service, prisma, paypalClient } = makeService(
+        makePaiement({ methodePaiement: MethodePaiement.EN_LIGNE, commande: { utilisateurId: 5 } }),
       );
-      await service.handleCallback('tx-1', true);
-      expect(invoicesService.generateForCommande).toHaveBeenCalledWith(10);
-      expect(invoicesService.sendInvoiceByEmail).toHaveBeenCalledWith(10);
+
+      const result = await service.initiateOnlinePayment(10, tokenClient);
+
+      expect(paypalClient.createOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ customId: '10' }),
+      );
+      expect(prisma.paiement.update).toHaveBeenCalledWith({
+        where: { idPaiement: 1 },
+        data: { transactionId: 'PAYPAL-ORDER-1', provider: 'paypal' },
+      });
+      expect(result).toEqual({ approvalUrl: 'https://paypal.test/approve/1' });
     });
 
-    it('ne génère pas de facture quand success=false', async () => {
-      const { service, invoicesService } = makeService(
-        makePaiement({ methodePaiement: MethodePaiement.EN_LIGNE }),
+    it("lève BadRequestException si la commande est en paiement à la livraison", async () => {
+      const { service } = makeService(
+        makePaiement({ methodePaiement: MethodePaiement.A_LA_LIVRAISON, commande: { utilisateurId: 5 } }),
       );
-      await service.handleCallback('tx-1', false);
-      expect(invoicesService.generateForCommande).not.toHaveBeenCalled();
+      await expect(service.initiateOnlinePayment(10, tokenClient)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
-    it('lève NotFoundException si la transaction est inconnue', async () => {
+    it("lève ForbiddenException si la commande n'appartient pas à l'appelant", async () => {
+      const { service } = makeService(
+        makePaiement({ methodePaiement: MethodePaiement.EN_LIGNE, commande: { utilisateurId: 999 } }),
+      );
+      await expect(service.initiateOnlinePayment(10, tokenClient)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('lève NotFoundException si aucun paiement ne correspond à la commande', async () => {
       const { service } = makeService(null);
-      await expect(service.handleCallback('tx-inconnue', true)).rejects.toThrow(
+      await expect(service.initiateOnlinePayment(10, tokenClient)).rejects.toThrow(
         NotFoundException,
       );
     });
+  });
 
-    it('est déjà idempotent : un second callback sur un paiement déjà traité ne fait rien', async () => {
-      const { service, prisma, invoicesService } = makeService(
-        makePaiement({ methodePaiement: MethodePaiement.EN_LIGNE, statut: StatutPaiement.SUCCESS }),
+  describe('captureOnlinePayment', () => {
+    it('capture le paiement, génère la facture et envoie les emails quand PayPal renvoie COMPLETED', async () => {
+      const { service, prisma, invoicesService, paypalClient, ordersService } = makeService(
+        makePaiement({
+          methodePaiement: MethodePaiement.EN_LIGNE,
+          commande: { utilisateurId: 5, utilisateur: { email: 'client@test.com' } },
+        }),
       );
-      await service.handleCallback('tx-1', true);
-      expect(prisma.paiement.update).not.toHaveBeenCalled();
+
+      const result = await service.captureOnlinePayment(10, tokenClient);
+
+      expect(paypalClient.captureOrder).toHaveBeenCalledWith('tx-1');
+      expect(prisma.paiement.update).toHaveBeenCalledWith({
+        where: { idPaiement: 1 },
+        data: { statut: StatutPaiement.SUCCESS, notificationSent: true },
+      });
+      // C'est cet appel qui décrémente réellement le stock et consomme le
+      // panier — voir OrdersService.create, qui ne le fait plus lui-même
+      // pour EN_LIGNE.
+      expect(ordersService.confirmOnlinePaymentSuccess).toHaveBeenCalledWith(10);
+      expect(invoicesService.generateForCommande).toHaveBeenCalledWith(10);
+      expect(invoicesService.sendInvoiceByEmail).toHaveBeenCalledWith(10);
+      expect(result.statut).toBe(StatutPaiement.SUCCESS);
+      expect(ordersService.cancel).not.toHaveBeenCalled();
+    });
+
+    it("marque FAILED, annule la commande (sans rien restaurer : stock/panier n'ont jamais été touchés) et ne génère pas de facture quand PayPal ne renvoie pas COMPLETED", async () => {
+      const { service, invoicesService, paypalClient, ordersService } = makeService(
+        makePaiement({
+          methodePaiement: MethodePaiement.EN_LIGNE,
+          commande: { utilisateurId: 5, utilisateur: { email: 'client@test.com' } },
+        }),
+      );
+      paypalClient.captureOrder.mockResolvedValueOnce({ id: 'PAYPAL-ORDER-1', status: 'DECLINED' });
+
+      const result = await service.captureOnlinePayment(10, tokenClient);
+
+      expect(result.statut).toBe(StatutPaiement.FAILED);
       expect(invoicesService.generateForCommande).not.toHaveBeenCalled();
+      expect(ordersService.confirmOnlinePaymentSuccess).not.toHaveBeenCalled();
+      // Régression : une commande jamais payée ne doit jamais rester visible
+      // côté admin comme une commande confirmée — voir OrdersService.cancel.
+      expect(ordersService.cancel).toHaveBeenCalledWith(10, tokenClient);
+    });
+
+    it("lève BadRequestException si aucun paiement PayPal n'a été initié (pas de transactionId)", async () => {
+      const { service } = makeService(
+        makePaiement({
+          methodePaiement: MethodePaiement.EN_LIGNE,
+          transactionId: null,
+          commande: { utilisateurId: 5, utilisateur: { email: 'client@test.com' } },
+        }),
+      );
+      await expect(service.captureOnlinePayment(10, tokenClient)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('est idempotent : ne capture pas deux fois un paiement déjà réussi', async () => {
+      const { service, paypalClient, invoicesService } = makeService(
+        makePaiement({
+          methodePaiement: MethodePaiement.EN_LIGNE,
+          statut: StatutPaiement.SUCCESS,
+          commande: { utilisateurId: 5, utilisateur: { email: 'client@test.com' } },
+        }),
+      );
+
+      await service.captureOnlinePayment(10, tokenClient);
+
+      expect(paypalClient.captureOrder).not.toHaveBeenCalled();
+      expect(invoicesService.generateForCommande).not.toHaveBeenCalled();
+    });
+
+    it('lève NotFoundException si aucun paiement ne correspond à la commande', async () => {
+      const { service } = makeService(null);
+      await expect(service.captureOnlinePayment(10, tokenClient)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

@@ -4,6 +4,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { montantEnLettres } from './montant-en-lettres';
+
+// Taux de TVA standard tunisien, uniforme pour tous les produits — il n'y a
+// pas (encore) de champ de taux par produit, donc pas de ligne de taxe par
+// palier dans le bloc Base/Taux/Taxe, une seule ligne suffit.
+const TVA_RATE = 19;
+// Droit de timbre fiscal, montant fixe appliqué aux factures commerciales en
+// Tunisie (indépendant du montant de la facture).
+const TIMBRE_FISCAL = 1;
 
 @Injectable()
 export class InvoicesService {
@@ -113,47 +122,188 @@ export class InvoicesService {
     idCommande: number;
     adresseLivraison: string | null;
     utilisateur: { nom: string; prenom: string | null; email: string };
-    produits: { quantite: number; prixUnitaire: unknown; produit: { nom: string } }[];
+    produits: {
+      quantite: number;
+      prixUnitaire: unknown;
+      produit: { idProduit: number; nom: string; unite: string };
+    }[];
     facture: { numeroFacture: string; dateEmission: Date; montant: unknown } | null;
   }) {
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-    doc.fontSize(18).text('Facture', { align: 'center' });
-    doc.moveDown();
+    const PAGE_LEFT = 40;
+    const PAGE_RIGHT = 555;
+    const PAGE_BOTTOM = 780;
 
-    doc.fontSize(10);
-    doc.text(`N° facture : ${commande.facture?.numeroFacture ?? ''}`);
-    doc.text(`Date : ${commande.facture?.dateEmission.toLocaleDateString('fr-FR') ?? ''}`);
-    doc.text(`Commande : #${commande.idCommande}`);
-    doc.moveDown();
-    doc.text(`Client : ${commande.utilisateur.prenom ?? ''} ${commande.utilisateur.nom}`);
-    doc.text(`Email : ${commande.utilisateur.email}`);
-    doc.text(`Adresse de livraison : ${commande.adresseLivraison ?? ''}`);
-    doc.moveDown();
+    const numero = commande.facture?.numeroFacture ?? '';
+    const date = commande.facture?.dateEmission?.toLocaleDateString('fr-FR') ?? '';
 
-    let y = doc.y;
-    doc.text('Produit', 50, y);
-    doc.text('Qté', 300, y);
-    doc.text('Prix unitaire', 350, y);
-    doc.text('Total', 470, y);
-    y += 20;
-
-    for (const item of commande.produits) {
-      const prixUnitaire = Number(String(item.prixUnitaire));
-      const total = prixUnitaire * item.quantite;
-      doc.text(item.produit.nom, 50, y);
-      doc.text(String(item.quantite), 300, y);
-      doc.text(`${prixUnitaire.toFixed(2)} DT`, 350, y);
-      doc.text(`${total.toFixed(2)} DT`, 470, y);
-      y += 20;
-    }
-
-    y += 10;
+    // --- En-tête : nom de la société à gauche, référence facture à droite.
+    // Volontairement minimal (pas de matricule fiscal / RIB / logo) — c'est
+    // la partie laissée à l'administration de la société à compléter.
+    doc.fontSize(18).font('Helvetica-Bold').text('Brocaramilou', PAGE_LEFT, 40);
     doc
-      .fontSize(12)
-      .text(`Montant total : ${Number(String(commande.facture?.montant ?? '0')).toFixed(2)} DT`, 50, y, {
+      .fontSize(8)
+      .font('Helvetica')
+      .fillColor('#666')
+      .text('Vente en gros et au détail — Tunisie', PAGE_LEFT, 62);
+    doc.fillColor('#000');
+
+    doc
+      .fontSize(16)
+      .font('Helvetica-Bold')
+      .text('FACTURE', PAGE_LEFT, 40, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' });
+    doc
+      .fontSize(9)
+      .font('Helvetica')
+      .text(`N° ${numero}`, PAGE_LEFT, 64, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' })
+      .text(`Date : ${date}`, PAGE_LEFT, 78, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' })
+      .text(`Commande : #${commande.idCommande}`, PAGE_LEFT, 92, {
+        width: PAGE_RIGHT - PAGE_LEFT,
         align: 'right',
       });
+
+    doc.moveTo(PAGE_LEFT, 112).lineTo(PAGE_RIGHT, 112).strokeColor('#ccc').stroke();
+    doc.strokeColor('#000');
+
+    doc.fontSize(9).font('Helvetica-Bold').text('Client', PAGE_LEFT, 120);
+    doc
+      .font('Helvetica')
+      .text(`${commande.utilisateur.prenom ?? ''} ${commande.utilisateur.nom}`.trim(), PAGE_LEFT, 132)
+      .text(commande.utilisateur.email, PAGE_LEFT, 145)
+      .text(commande.adresseLivraison ?? '', PAGE_LEFT, 158, { width: PAGE_RIGHT - PAGE_LEFT });
+
+    // --- Tableau produits ---
+    const columns = [
+      { label: 'Code', x: 40, width: 45, align: 'left' as const },
+      { label: 'Désignation', x: 85, width: 155, align: 'left' as const },
+      { label: 'Qté', x: 240, width: 30, align: 'right' as const },
+      { label: 'UN', x: 270, width: 30, align: 'center' as const },
+      { label: 'P.U.H.T', x: 300, width: 55, align: 'right' as const },
+      { label: 'TVA %', x: 355, width: 35, align: 'right' as const },
+      { label: 'P.U.TTC', x: 390, width: 55, align: 'right' as const },
+      { label: 'Rem%', x: 445, width: 35, align: 'right' as const },
+      { label: 'Net H.T.', x: 480, width: 75, align: 'right' as const },
+    ];
+
+    const drawTableHeader = (yPos: number): number => {
+      doc.rect(PAGE_LEFT, yPos, PAGE_RIGHT - PAGE_LEFT, 20).fillAndStroke('#f3f3f3', '#999');
+      doc.fillColor('#000').fontSize(8).font('Helvetica-Bold');
+      for (const col of columns) {
+        doc.text(col.label, col.x + 3, yPos + 6, { width: col.width - 6, align: col.align });
+      }
+      doc.font('Helvetica');
+      return yPos + 20;
+    };
+
+    let y = drawTableHeader(190);
+    let totalHTBrut = 0;
+
+    for (const item of commande.produits) {
+      if (y > PAGE_BOTTOM - 40) {
+        doc.addPage();
+        y = drawTableHeader(40);
+      }
+
+      const puTTC = Number(String(item.prixUnitaire));
+      const puHT = puTTC / (1 + TVA_RATE / 100);
+      const netHT = puHT * item.quantite;
+      totalHTBrut += netHT;
+
+      doc.rect(PAGE_LEFT, y, PAGE_RIGHT - PAGE_LEFT, 18).strokeColor('#ddd').stroke();
+      doc.strokeColor('#000');
+      doc.fillColor('#000').fontSize(8).font('Helvetica');
+      const cellY = y + 5;
+      doc.text(String(item.produit.idProduit), columns[0].x + 3, cellY, { width: columns[0].width - 6 });
+      doc.text(item.produit.nom, columns[1].x + 3, cellY, { width: columns[1].width - 6 });
+      doc.text(String(item.quantite), columns[2].x + 3, cellY, {
+        width: columns[2].width - 6,
+        align: 'right',
+      });
+      doc.text(item.produit.unite, columns[3].x + 3, cellY, { width: columns[3].width - 6, align: 'center' });
+      doc.text(puHT.toFixed(3), columns[4].x + 3, cellY, { width: columns[4].width - 6, align: 'right' });
+      doc.text(TVA_RATE.toFixed(2), columns[5].x + 3, cellY, { width: columns[5].width - 6, align: 'right' });
+      doc.text(puTTC.toFixed(3), columns[6].x + 3, cellY, { width: columns[6].width - 6, align: 'right' });
+      doc.text('0.00', columns[7].x + 3, cellY, { width: columns[7].width - 6, align: 'right' });
+      doc.text(netHT.toFixed(3), columns[8].x + 3, cellY, { width: columns[8].width - 6, align: 'right' });
+
+      y += 18;
+    }
+
+    y += 15;
+    if (y > PAGE_BOTTOM - 160) {
+      doc.addPage();
+      y = 40;
+    }
+
+    const totalTVA = totalHTBrut * (TVA_RATE / 100);
+    const netAPayer = totalHTBrut + totalTVA + TIMBRE_FISCAL;
+
+    // --- Bloc Base/Taux/Taxe (bas gauche) : une seule ligne, taux unique. ---
+    const taxBoxY = y;
+    doc.rect(PAGE_LEFT, taxBoxY, 220, 52).strokeColor('#999').stroke();
+    doc.strokeColor('#000');
+    doc.fontSize(8).font('Helvetica-Bold');
+    doc.text('Base', PAGE_LEFT + 5, taxBoxY + 6, { width: 65 });
+    doc.text('Taux', PAGE_LEFT + 75, taxBoxY + 6, { width: 65 });
+    doc.text('Taxe', PAGE_LEFT + 145, taxBoxY + 6, { width: 65 });
+    doc.font('Helvetica');
+    doc.text(totalHTBrut.toFixed(2), PAGE_LEFT + 5, taxBoxY + 18, { width: 65 });
+    doc.text(`${TVA_RATE.toFixed(3)}`, PAGE_LEFT + 75, taxBoxY + 18, { width: 65 });
+    doc.text(totalTVA.toFixed(3), PAGE_LEFT + 145, taxBoxY + 18, { width: 65 });
+    doc.font('Helvetica-Bold').text('Total Taxe', PAGE_LEFT + 5, taxBoxY + 36);
+    doc.font('Helvetica').text(totalTVA.toFixed(3), PAGE_LEFT + 75, taxBoxY + 36);
+
+    // --- Bloc totaux (bas droite) ---
+    const totalsX = 310;
+    const totalsWidth = PAGE_RIGHT - totalsX;
+    const totalsRows: [string, string][] = [
+      ['Total H.T Brut :', totalHTBrut.toFixed(3)],
+      ['Remise Articles :', '0.000'],
+      ['Total H.T Net :', totalHTBrut.toFixed(3)],
+      ['Total TVA :', totalTVA.toFixed(3)],
+      ['Timbre Fiscal :', TIMBRE_FISCAL.toFixed(3)],
+      ['Net A Payer :', netAPayer.toFixed(3)],
+    ];
+    let ty = taxBoxY;
+    doc.fontSize(9);
+    for (const [label, value] of totalsRows) {
+      const isNet = label === 'Net A Payer :';
+      doc.font(isNet ? 'Helvetica-Bold' : 'Helvetica');
+      doc.text(label, totalsX, ty, { width: 120 });
+      doc.text(`${value} DT`, totalsX + 120, ty, { width: totalsWidth - 120, align: 'right' });
+      ty += 15;
+    }
+
+    // --- Montant en lettres ---
+    y = Math.max(taxBoxY + 62, ty + 10);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(9)
+      .text('Arrêtée la présente facture à la somme de :', PAGE_LEFT, y);
+    doc
+      .font('Helvetica-Oblique')
+      .fontSize(9)
+      .text(montantEnLettres(netAPayer), PAGE_LEFT, y + 14, { width: PAGE_RIGHT - PAGE_LEFT });
+
+    // --- Notes / Signatures ---
+    y += 50;
+    if (y > PAGE_BOTTOM - 90) {
+      doc.addPage();
+      y = 40;
+    }
+    const boxWidth = (PAGE_RIGHT - PAGE_LEFT - 20) / 3;
+    const boxLabels = ['Notes', 'Signature Client', 'Signature & Cachet'];
+    boxLabels.forEach((label, i) => {
+      const bx = PAGE_LEFT + i * (boxWidth + 10);
+      doc.fontSize(8).font('Helvetica-Oblique').fillColor('#555').text(label, bx + 6, y);
+      doc.fillColor('#000');
+      doc
+        .roundedRect(bx, y + 12, boxWidth, 70, 4)
+        .strokeColor('#999')
+        .stroke();
+      doc.strokeColor('#000');
+    });
 
     return doc;
   }

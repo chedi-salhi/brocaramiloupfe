@@ -1,0 +1,106 @@
+# Fichier Compose autonome pour la CI (job "e2e" de .github/workflows/ci.yml)
+# et pour rejouer la suite E2E en local sans les secrets de dev.
+#
+# Volontairement PAS un overlay de docker-compose.yml (pas de `docker compose
+# -f docker-compose.yml -f docker-compose.ci.yml ...`) : la fusion Compose
+# CONCATÈNE les listes comme `volumes` et `env_file` au lieu de les
+# remplacer, donc une redéfinition partielle laisserait quand même
+# `env_file: ./backend/.env` actif — un fichier qui n'existe pas sur un
+# checkout Git frais (gitignoré, voir backend/.gitignore) et ferait échouer
+# le démarrage. Se lance donc seul :
+#
+#   docker compose -f docker-compose.ci.yml up -d --build
+#   docker compose -f docker-compose.ci.yml down -v   # pour repartir propre
+#
+# Utilise la fixture Keycloak jetable keycloak/ci-realm-export.json (secret
+# et comptes de test dédiés à la CI, sans rapport avec keycloak/realm-export.json
+# qui reste gitignoré) — voir ce fichier pour le détail des comptes.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: brocaramilou
+      POSTGRES_PASSWORD: brocaramilou
+      POSTGRES_DB: brocaramilou
+    ports:
+      - "5433:5432"
+    volumes:
+      - ci_db_data:/var/lib/postgresql/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ci_keycloak_data:/opt/keycloak/data
+      - ./keycloak/ci-realm-export.json:/opt/keycloak/data/import/ci-realm-export.json:ro
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://brocaramilou:brocaramilou@db:5432/brocaramilou?schema=public
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: brocaramilou
+      KEYCLOAK_CLIENT_ID: backend
+      KEYCLOAK_CLIENT_SECRET: ci-e2e-throwaway-secret-do-not-use-in-prod
+      KEYCLOAK_ADMIN_USER: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Email / Cloudinary : aucun scénario Playwright n'exerce l'envoi
+      # d'email (inscription) ni l'upload d'image (admin produits) — valeurs
+      # bidon pour que le service démarre sans dépendre d'un vrai compte
+      # externe. nodemailer/Cloudinary ne valident les identifiants qu'à
+      # l'usage, pas à l'instanciation.
+      EMAIL_HOST: smtp.example.invalid
+      EMAIL_PORT: "587"
+      EMAIL_USER: ci@example.invalid
+      EMAIL_PASS: ci-placeholder
+      EMAIL_FROM: ci@example.invalid
+      CLOUDINARY_CLOUD_NAME: ci-placeholder
+      CLOUDINARY_API_KEY: "000000000000000"
+      CLOUDINARY_API_SECRET: ci-placeholder
+      # PayPal : identifiants bidon volontairement — aucun scénario
+      # Playwright ne va jusqu'au bout d'un vrai checkout PayPal (site
+      # externe, pas automatisable de façon stable en CI). L'appel
+      # "/payments/:id/initiate" échouera proprement (erreur affichée dans
+      # l'UI), ce qui suffit aux specs EN_LIGNE — voir
+      # e2e/tests/fixtures/orders.ts.
+      PAYPAL_API_BASE: https://api-m.sandbox.paypal.com
+      PAYPAL_CLIENT_ID: ci-placeholder
+      PAYPAL_CLIENT_SECRET: ci-placeholder
+      PAYPAL_CURRENCY: USD
+      PAYPAL_TND_TO_USD_RATE: "0.32"
+      FRONTEND_URL: http://keycloak:3000
+    command: sh -c "npx prisma migrate deploy && node dist/src/main"
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+      - keycloak
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:3001
+        NEXT_PUBLIC_SOCKET_URL: http://backend:3001
+        NEXT_PUBLIC_KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+    environment:
+      NEXTAUTH_URL: http://keycloak:3000
+      NEXTAUTH_SECRET: ci-e2e-nextauth-secret-throwaway
+      KEYCLOAK_CLIENT_ID: backend
+      KEYCLOAK_CLIENT_SECRET: ci-e2e-throwaway-secret-do-not-use-in-prod
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+      AUTH_TRUST_HOST: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - keycloak
+
+volumes:
+  ci_db_data:
+  ci_keycloak_data:
