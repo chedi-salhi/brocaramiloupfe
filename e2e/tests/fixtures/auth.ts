@@ -38,8 +38,6 @@ export async function loginAs(page: Page, user: TestUser) {
 }
 
 export async function logout(page: Page) {
-  await page.getByRole("button", { name: "Déconnexion" }).click();
-
   // fullSignOut() (lib/full-sign-out.ts) fait d'abord signOut({redirect:
   // false}) — qui bascule l'UI en "Connexion" quasi instantanément côté
   // client — PUIS seulement window.location.href vers l'endpoint de logout
@@ -47,8 +45,19 @@ export async function logout(page: Page) {
   // = "/"). Si on rend la main dès que "Connexion" est visible, ce
   // round-trip est encore en vol : le prochain loginAs() (plusieurs specs
   // enchaînent client → admin → livreur dans le même test) entre en course
-  // avec cette navigation et échoue avec net::ERR_ABORTED. On absorbe donc
-  // le round-trip complet avant de continuer.
+  // avec cette navigation et échoue avec net::ERR_ABORTED.
+  //
+  // On attend donc explicitement le passage par l'endpoint de logout
+  // Keycloak (chemin qui ne peut pas déjà être l'URL courante, contrairement
+  // à "/" — createOrderAsClient() en EN_LIGNE fait par exemple un goto("/")
+  // juste avant d'appeler logout(), ce qui ferait résoudre un simple
+  // waitForURL("/") immédiatement sans attendre le vrai round-trip). Le
+  // Promise.all enregistre l'attente avant le clic, pour ne pas rater une
+  // navigation plus rapide que l'aller-retour du clic lui-même.
+  await Promise.all([
+    page.waitForURL(/\/realms\/[^/]+\/protocol\/openid-connect\/logout/, { timeout: 15_000 }),
+    page.getByRole("button", { name: "Déconnexion" }).click(),
+  ]);
   await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 15_000 });
 }
