@@ -278,3 +278,24 @@ navigateur, alors que les logs des conteneurs paraissent normaux.
 
 (Mots de passe temporaires — à changer depuis le profil une fois soutenance/
 démo passée.)
+
+## CI/CD : publication Docker Hub
+
+Le job `docker-build` de `ci.yml` publie les images sur Docker Hub après
+chaque build validé, mais seulement si les secrets ci-dessous existent —
+sans eux, ces steps sont simplement sautés (le reste de la CI continue de
+fonctionner normalement, comme avant leur ajout).
+
+**Configuration (une seule fois)** :
+1. Créer un compte sur [hub.docker.com](https://hub.docker.com) si besoin.
+2. Générer un access token : *Account Settings* → *Security* → *New Access
+   Token* (permissions "Read & Write" suffisent).
+3. Dans le repo GitHub : *Settings* → *Secrets and variables* → *Actions* →
+   *New repository secret*, ajouter :
+   - `DOCKERHUB_USERNAME` : le nom d'utilisateur Docker Hub.
+   - `DOCKERHUB_TOKEN` : le token généré à l'étape 2 (pas le mot de passe du
+     compte).
+
+Une fois configuré, chaque run du job `docker-build` publie
+`<DOCKERHUB_USERNAME>/brocaramilou-backend` et `.../brocaramilou-frontend`,
+tagués `latest` et avec le SHA du commit.
