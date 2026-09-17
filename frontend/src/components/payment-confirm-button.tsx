@@ -44,7 +44,13 @@ export function PaymentConfirmButton({ commande }: { commande: Commande }) {
 
   return (
     <div className="mt-3">
-      <Button variant="outline" onClick={confirm} disabled={loading} className="text-sm">
+      <Button
+        variant="outline"
+        onClick={confirm}
+        disabled={loading}
+        className="text-sm"
+        data-testid="confirm-cash-button"
+      >
         {loading ? "..." : "💵 Confirmer le paiement reçu (cash)"}
       </Button>
       {error && <p className="text-xs text-red-600 mt-1">{error}</p>}

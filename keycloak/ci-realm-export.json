@@ -1,0 +1,111 @@
+{
+  "realm": "brocaramilou",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Administrateur Brocaramilou"
+      },
+      {
+        "name": "client",
+        "description": "Client Brocaramilou"
+      },
+      {
+        "name": "livreur",
+        "description": "Livreur Brocaramilou"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "backend",
+      "name": "backend",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ci-e2e-throwaway-secret-do-not-use-in-prod",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "bearerOnly": false,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "http://keycloak:3000/*"
+      ],
+      "webOrigins": [
+        "http://keycloak:3000"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://keycloak:3000/*",
+        "backchannel.logout.session.required": "true"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "testadmin@example.com",
+      "email": "testadmin@example.com",
+      "firstName": "Test",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Changer123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ]
+    },
+    {
+      "username": "salhi08fares@gmail.com",
+      "email": "salhi08fares@gmail.com",
+      "firstName": "Fares",
+      "lastName": "Salhi",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Changer123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "client"
+      ]
+    },
+    {
+      "username": "mohemedhedi@gmail.com",
+      "email": "mohemedhedi@gmail.com",
+      "firstName": "Mohamed Hedi",
+      "lastName": "Livreur",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Changer123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "livreur"
+      ]
+    }
+  ]
+}

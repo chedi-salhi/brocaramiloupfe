@@ -14,12 +14,92 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     restart: unless-stopped
-    command: start-dev
+    # --import-realm : au démarrage, Keycloak importe automatiquement tout
+    # realm trouvé dans /opt/keycloak/data/import (voir volume ci-dessous).
+    # Les entités déjà existantes ne sont pas écrasées, donc c'est sans
+    # risque même si le volume keycloak_data est intact.
+    command: start-dev --import-realm
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
     ports:
       - "8080:8080"
+    # keycloak_data : persiste la base H2 embarquée entre "down"/"up" (sans
+    # "-v"). Ne protège pas contre un "down -v" ou un volume corrompu — c'est
+    # exactement ce qui est arrivé le 19/07/2026 pendant un dépannage
+    # Docker/WSL2, realm entièrement perdu.
+    #
+    # ./keycloak:/opt/keycloak/data/import : filet de sécurité pour ce
+    # scénario. Réexporter avec export-keycloak-realm.ps1 après toute
+    # modification du realm (nouveau client, rôle, etc.) pour que
+    # realm-export.json reste à jour ; en cas de perte du volume, un simple
+    # "docker compose up" recrée le realm/clients/rôles automatiquement
+    # (les comptes utilisateurs restent à recréer via recreate-keycloak-users.ps1).
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak:/opt/keycloak/data/import
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # Réutilise les secrets déjà présents dans backend/.env (email, Cloudinary,
+    # client Keycloak...) ; seules les valeurs réseau ci-dessous sont
+    # réécrites pour pointer vers les autres conteneurs plutôt que localhost.
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://brocaramilou:brocaramilou@db:5432/brocaramilou?schema=public
+      KEYCLOAK_URL: http://keycloak:8080
+    # migrate deploy (pas "migrate dev") : applique les migrations existantes
+    # sans prompt, safe à rejouer à chaque démarrage. Si "db" n'est pas encore
+    # prêt, le conteneur crashe et "restart: unless-stopped" le relance —
+    # pas de healthcheck ici, juste une boucle de retry simple mais efficace.
+    # dist/src/main.js, pas dist/main.js — voir le commentaire dans
+    # backend/Dockerfile (rootDir TypeScript non explicite).
+    command: sh -c "npx prisma migrate deploy && node dist/src/main"
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+      - keycloak
+
+  frontend:
+    build:
+      context: ./frontend
+      # NEXT_PUBLIC_* : figées dans le bundle navigateur au build, donc en
+      # argument de build ici, pas dans "environment:" (voir Dockerfile).
+      # "keycloak" et "backend" doivent être résolvables par le navigateur
+      # ET par les conteneurs avec le même nom — ajouter dans le fichier
+      # hosts de Windows : "127.0.0.1 keycloak" et "127.0.0.1 backend"
+      # (voir RECOVERY.md). Sans ça, login Keycloak et appels API/panier
+      # côté client échoueront alors que tout marche côté serveur.
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:3001
+        NEXT_PUBLIC_SOCKET_URL: http://backend:3001
+        NEXT_PUBLIC_KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+    restart: unless-stopped
+    env_file: ./frontend/.env.local
+    environment:
+      # "keycloak" et non 127.0.0.1/localhost : le navigateur doit voir l'app
+      # et Keycloak sur le MÊME nom d'hôte (seul le port diffère), sinon ils
+      # sont "cross-site" l'un pour l'autre. Sans HTTPS, Keycloak ne peut pas
+      # envoyer son cookie de session de connexion dans ce cas (log Keycloak :
+      # "cookies... will not be available in cross-origin POST requests"),
+      # et la soumission du formulaire de connexion reste bloquée
+      # indéfiniment. "keycloak" résout déjà vers 127.0.0.1 (fichier hosts,
+      # voir RECOVERY.md), donc http://keycloak:3000 fonctionne pareil que
+      # 127.0.0.1:3000 pour le navigateur, juste "same-site" avec Keycloak.
+      NEXTAUTH_URL: http://keycloak:3000
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+      # "next start" (build de prod, utilisé dans ce conteneur) est plus
+      # strict que "next dev" sur le header Host — sans ça, Auth.js rejette
+      # toutes les requêtes avec "UntrustedHost" et le site paraît injoignable.
+      AUTH_TRUST_HOST: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - keycloak
 
 volumes:
   db_data:
+  keycloak_data:

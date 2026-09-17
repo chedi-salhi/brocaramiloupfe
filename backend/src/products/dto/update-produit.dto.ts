@@ -40,4 +40,10 @@ export class UpdateProduitDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  // Unité de vente affichée sur la facture (Kg, L, Pc, Boîte, Unité...).
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  unite?: string;
 }

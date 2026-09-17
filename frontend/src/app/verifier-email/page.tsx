@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -10,7 +10,26 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 type Status = "loading" | "success" | "error";
 
+// useSearchParams() force Next.js à passer cette page en rendu client pur
+// au moment du build ("CSR bailout") — sans Suspense autour, next build
+// échoue avec "useSearchParams() should be wrapped in a suspense boundary".
 export default function VerifierEmailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-md mx-auto px-6 py-16">
+          <Card hoverable={false} className="text-center">
+            <p className="text-foreground/60">Chargement...</p>
+          </Card>
+        </div>
+      }
+    >
+      <VerifierEmailContent />
+    </Suspense>
+  );
+}
+
+function VerifierEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   // État initial dérivé directement de la présence du token plutôt que fixé

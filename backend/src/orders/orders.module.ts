@@ -8,5 +8,8 @@ import { RealtimeModule } from '../realtime/realtime.module';
   imports: [AuthModule, RealtimeModule],
   providers: [OrdersService],
   controllers: [OrdersController],
+  // Exporté pour PaymentsModule : captureOnlinePayment annule la commande
+  // (restaure stock + panier) quand PayPal refuse le paiement.
+  exports: [OrdersService],
 })
 export class OrdersModule {}

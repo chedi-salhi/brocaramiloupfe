@@ -87,6 +87,7 @@ model Produit {
   categorieId    Int
   utilisateurId  Int
   imageUrl       String?
+  unite          String            @default("Unité") // unité de vente affichée sur la facture (Kg, L, Pc, Boîte, Unité...). Le "Code" de la facture réutilise idProduit, pas de champ dédié.
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   isAvailable    Boolean           @default(true)

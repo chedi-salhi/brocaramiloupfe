@@ -56,6 +56,7 @@ export class ProductsService {
         utilisateurId: utilisateur.idUtilisateur,
         isAvailable: dto.isAvailable ?? true,
         imageUrl: dto.imageUrl,
+        unite: dto.unite,
       },
     });
   }

@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Image Docker autonome (serveur Node minimal + uniquement les dépendances
+  // réellement utilisées) au lieu de copier tout node_modules dans l'image.
+  output: "standalone",
 };
 
 export default nextConfig;
