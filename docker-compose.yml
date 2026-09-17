@@ -100,6 +100,44 @@ services:
       - backend
       - keycloak
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    # Scrape config en lecture seule : la conf vit dans le repo (versionnée),
+    # pas dans le volume, pour rester reproductible d'une machine à l'autre.
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    environment:
+      # Login par défaut pour la démo/soutenance ; à changer si ce stack
+      # devait un jour être exposé hors du réseau local.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Désactive l'écran "créer un compte" au premier login — appréciable
+      # pour une démo devant le jury.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Provisioning automatique : datasource Prometheus + dashboards déjà
+      # présents au premier démarrage, sans clic dans l'UI (voir dossier
+      # grafana/provisioning).
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   db_data:
   keycloak_data:
+  prometheus_data:
+  grafana_data:

@@ -20,6 +20,7 @@ import { UsersModule } from './users/users.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { MessagesModule } from './messages/messages.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { MessagesModule } from './messages/messages.module';
     RealtimeModule,
     UploadsModule,
     MessagesModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,0 +1,18 @@
+global:
+  # 15s : suffisant pour une démo/soutenance, sans surcharger le backend.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "brocaramilou-backend"
+    metrics_path: /metrics
+    static_configs:
+      # "backend" = nom du service Docker Compose, résolu sur le réseau
+      # interne du projet (pas besoin d'exposer 3001 côté hôte pour ça).
+      - targets: ["backend:3001"]
+
+  # Prometheus se scrape lui-même : utile pour vérifier que le scraping
+  # fonctionne (up{job="prometheus"} == 1) sans dépendre du backend.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
