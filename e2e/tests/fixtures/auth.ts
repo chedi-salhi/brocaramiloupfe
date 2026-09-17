@@ -18,7 +18,22 @@ export type TestUser = (typeof TEST_USERS)[keyof typeof TEST_USERS];
 // cross-site, issuer, redirect_uri...), donc le test le plus rentable de
 // toute la suite est celui qui l'exerce pour de vrai à chaque run.
 export async function loginAs(page: Page, user: TestUser) {
-  await page.goto("/");
+  // Un logout() qui vient de tourner peut laisser le round-trip de
+  // déconnexion Keycloak encore en vol (voir logout() ci-dessous) : ce
+  // goto("/") entre alors en course avec cette navigation et échoue avec
+  // net::ERR_ABORTED. Un seul retry suffit — la première tentative laisse
+  // le temps à la navigation en vol de se terminer, la seconde part d'un
+  // état stable. Plus robuste qu'essayer de deviner/attendre une URL
+  // intermédiaire précise pendant le logout (testé, voir historique git :
+  // ça a cassé plus de tests que ça n'en a réparé).
+  try {
+    await page.goto("/");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("ERR_ABORTED")) throw err;
+    await page.goto("/");
+  }
+
   await page.getByRole("button", { name: "Connexion" }).click();
 
   // Keycloak sert son propre formulaire HTML (pas de composant React) —
@@ -38,6 +53,8 @@ export async function loginAs(page: Page, user: TestUser) {
 }
 
 export async function logout(page: Page) {
+  await page.getByRole("button", { name: "Déconnexion" }).click();
+
   // fullSignOut() (lib/full-sign-out.ts) fait d'abord signOut({redirect:
   // false}) — qui bascule l'UI en "Connexion" quasi instantanément côté
   // client — PUIS seulement window.location.href vers l'endpoint de logout
@@ -45,19 +62,18 @@ export async function logout(page: Page) {
   // = "/"). Si on rend la main dès que "Connexion" est visible, ce
   // round-trip est encore en vol : le prochain loginAs() (plusieurs specs
   // enchaînent client → admin → livreur dans le même test) entre en course
-  // avec cette navigation et échoue avec net::ERR_ABORTED.
+  // avec cette navigation et échoue avec net::ERR_ABORTED. On absorbe donc
+  // le round-trip avant de continuer.
   //
-  // On attend donc explicitement le passage par l'endpoint de logout
-  // Keycloak (chemin qui ne peut pas déjà être l'URL courante, contrairement
-  // à "/" — createOrderAsClient() en EN_LIGNE fait par exemple un goto("/")
-  // juste avant d'appeler logout(), ce qui ferait résoudre un simple
-  // waitForURL("/") immédiatement sans attendre le vrai round-trip). Le
-  // Promise.all enregistre l'attente avant le clic, pour ne pas rater une
-  // navigation plus rapide que l'aller-retour du clic lui-même.
-  await Promise.all([
-    page.waitForURL(/\/realms\/[^/]+\/protocol\/openid-connect\/logout/, { timeout: 15_000 }),
-    page.getByRole("button", { name: "Déconnexion" }).click(),
-  ]);
+  // Tentative précédente : attendre explicitement le passage par l'URL de
+  // logout Keycloak (/realms/.../protocol/openid-connect/logout) avant ce
+  // waitForURL("/"). Ça a empiré les choses en CI (9 échecs au lieu de 4) :
+  // le redirect Keycloak -> "/" est apparemment trop rapide/cross-origin
+  // pour que Playwright l'observe comme une navigation distincte, donc
+  // cette attente timeout systématiquement. Le waitForURL("/") seul reste
+  // imparfait (résout immédiatement si l'URL courante est déjà "/", cas de
+  // createOrderAsClient() en EN_LIGNE) mais c'est loginAs() qui absorbe ce
+  // reliquat avec un retry sur ERR_ABORTED plutôt que logout() lui-même.
   await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 15_000 });
 }
