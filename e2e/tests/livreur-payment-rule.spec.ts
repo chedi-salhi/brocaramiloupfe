@@ -12,6 +12,11 @@ test.describe("Règle paiement cash avant livraison", () => {
   test("le livreur ne peut pas marquer livrée avant d'avoir confirmé le cash", async ({
     page,
   }) => {
+    // 3 cycles login/logout Keycloak (client, admin, livreur) dans ce seul
+    // test : marge x3 plutôt que de risquer un faux échec si l'un des
+    // aller-retours OIDC est lent sous charge CI (voir fixtures/auth.ts).
+    test.slow();
+
     const commandeId = await createOrderAsClient(page, "A_LA_LIVRAISON");
     await assignLivreurAsAdmin(page, commandeId);
 
@@ -32,7 +37,10 @@ test.describe("Règle paiement cash avant livraison", () => {
 
     // Étape 3 : confirmer le cash reçu.
     await order.getByTestId("confirm-cash-button").click();
-    await expect(order.getByText("✓ Paiement encaissé et confirmé")).toBeVisible();
+    // Timeout par défaut (8s) trop court sous charge CI : voir le commentaire
+    // équivalent dans admin-orders.spec.ts (PATCH + router.refresh() complet,
+    // pas une simple mise à jour d'état local).
+    await expect(order.getByText("✓ Paiement encaissé et confirmé")).toBeVisible({ timeout: 20_000 });
 
     // Étape 4 : le bouton "Livrée" redevient disponible, et fonctionne.
     await expect(order.getByTestId("cash-not-confirmed-warning")).toHaveCount(0);
@@ -54,6 +62,10 @@ test.describe("Règle paiement cash avant livraison", () => {
   test("une commande en ligne non payée ne peut pas être assignée à un livreur", async ({
     page,
   }) => {
+    // 2 cycles login/logout Keycloak (client, admin) : même marge que
+    // l'autre test de ce fichier, cette fois flaky plutôt que systématique.
+    test.slow();
+
     const commandeId = await createOrderAsClient(page, "EN_LIGNE");
 
     await loginAs(page, TEST_USERS.admin);

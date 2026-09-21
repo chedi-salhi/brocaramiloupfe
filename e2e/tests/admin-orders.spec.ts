@@ -15,6 +15,12 @@ test.describe("Panneau admin — commandes", () => {
   test("bouton Livrée désactivé tant que le cash n'est pas confirmé, puis clôture", async ({
     page,
   }) => {
+    // 3 cycles login/logout Keycloak dans ce seul test (client, admin x2 via
+    // assignLivreurAsAdmin puis ce test lui-même) : marge x3 plutôt que de
+    // risquer un faux échec si l'un des aller-retours OIDC est lent sous
+    // charge CI (voir fixtures/auth.ts).
+    test.slow();
+
     const commandeId = await createOrderAsClient(page, "A_LA_LIVRAISON");
     await assignLivreurAsAdmin(page, commandeId);
 
@@ -31,7 +37,11 @@ test.describe("Panneau admin — commandes", () => {
     await expect(livreeButton).toBeDisabled();
 
     await row.getByTestId("confirm-cash-button").click();
-    await expect(row.getByText("✓ Paiement encaissé et confirmé")).toBeVisible();
+    // Timeout par défaut (8s) trop court sous charge CI : ce texte n'apparaît
+    // qu'après un PATCH /payments/:id/confirm-cash ET un router.refresh()
+    // complet (nouveau rendu serveur), pas une simple mise à jour d'état
+    // local (voir PaymentConfirmButton).
+    await expect(row.getByText("✓ Paiement encaissé et confirmé")).toBeVisible({ timeout: 20_000 });
     await expect(livreeButton).toBeEnabled();
 
     await livreeButton.click();
@@ -58,6 +68,10 @@ test.describe("Panneau admin — commandes", () => {
   test("une commande en ligne non payée ne peut être qu'annulée depuis le panneau admin", async ({
     page,
   }) => {
+    // 2 cycles login/logout Keycloak (client, admin) — déjà vu flaky en CI
+    // sur le logout(), même marge que les tests voisins de ce fichier.
+    test.slow();
+
     const commandeId = await createOrderAsClient(page, "EN_LIGNE");
 
     await loginAs(page, TEST_USERS.admin);

@@ -74,6 +74,12 @@ export async function logout(page: Page) {
   // imparfait (résout immédiatement si l'URL courante est déjà "/", cas de
   // createOrderAsClient() en EN_LIGNE) mais c'est loginAs() qui absorbe ce
   // reliquat avec un retry sur ERR_ABORTED plutôt que logout() lui-même.
-  await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
+  //
+  // 15s -> 30s (22/09/2026) : vu en CI un logout depuis /admin/commandes
+  // rester bloqué sur /admin (garde de route côté client qui réagit à la
+  // perte de session) avant d'atteindre "/", et dépasser 15s — cohérent
+  // avec la stack CI mesurée plus lente qu'en local sur cette session
+  // (voir aussi messaging.spec.ts, même symptôme/même fix).
+  await page.waitForURL((url) => url.pathname === "/", { timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 15_000 });
 }
