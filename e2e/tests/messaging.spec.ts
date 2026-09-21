@@ -51,11 +51,18 @@ test.describe("Messagerie temps réel client <-> admin", () => {
 
       // Client ouvre la bulle de chat flottante (montée globalement dans
       // layout.tsx) — elle ne rend rien tant que GET /messages/contact n'a
-      // pas résolu (voir ChatWidget : "if (!contact) return null"), d'où le
-      // timeout généreux plutôt qu'un défaut de 5s.
+      // pas résolu (voir ChatWidget : "if (!contact) return null"). Timeout
+      // à 30s (pas 15s) : ce test ouvre DEUX sessions authentifiées en
+      // parallèle (admin + client) sur la même stack Docker CI partagée
+      // (2 vCPU) — vu en CI (run #34) un dépassement net de 15s ici alors
+      // que le même test passe en ~9s en local, cohérent avec un simple
+      // ralentissement SSR/session sous charge plutôt qu'un vrai bug
+      // (`/messages/contact` répond bien, juste plus lentement). test.slow()
+      // ci-dessus triple le timeout du test global mais PAS les timeouts
+      // explicites comme celui-ci, d'où l'ajustement manuel.
       await clientPage.goto("/");
       const bulleChat = clientPage.getByRole("button", { name: "Ouvrir le chat" });
-      await expect(bulleChat).toBeVisible({ timeout: 15_000 });
+      await expect(bulleChat).toBeVisible({ timeout: 30_000 });
       await bulleChat.click();
 
       const champClient = clientPage.getByPlaceholder("Écrire un message...");
