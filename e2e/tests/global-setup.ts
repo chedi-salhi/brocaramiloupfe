@@ -109,6 +109,14 @@ async function getToken(user: TestUser): Promise<string> {
 // retrouve alors sans option, avec un timeout Playwright peu explicite à la
 // clé. On force donc la sync des 3 comptes de test ici, une fois pour toute
 // la suite.
+//
+// Insuffisant à lui seul, découvert plus tard (voir docker-compose(.ci).yml) :
+// la commande de démarrage du conteneur backend ne lançait jamais le seed
+// Prisma (table Role), donc même synchronisé ici, chaque Utilisateur se
+// retrouvait avec roleId = null sur une base neuve — le <select> restait
+// vide malgré cette sync. Les deux correctifs sont complémentaires : celui-ci
+// évite un login tardif pendant la suite, l'autre garantit que les rôles
+// existent pour que la sync leur donne un sens.
 async function syncTestUsers() {
   for (const user of Object.values(TEST_USERS)) {
     const token = await getToken(user);

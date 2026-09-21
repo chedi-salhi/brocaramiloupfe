@@ -55,7 +55,18 @@ services:
     # pas de healthcheck ici, juste une boucle de retry simple mais efficace.
     # dist/src/main.js, pas dist/main.js — voir le commentaire dans
     # backend/Dockerfile (rootDir TypeScript non explicite).
-    command: sh -c "npx prisma migrate deploy && node dist/src/main"
+    #
+    # dist/prisma/seed.js (idempotent, upsert par nom) : sans cette étape, la
+    # table Role reste vide sur une base fraîche et TOUT utilisateur qui se
+    # synchronise (AuthService.syncUser, déclenché par GET /auth/me) se
+    # retrouve avec roleId = null — donc invisible aux filtres côté rôle
+    # (ex: le <select> "assigner un livreur" de /admin/commandes, ou le
+    # contact support de la messagerie client). Passait inaperçu en local
+    # (volume Postgres persistant, seedé une fois à la main il y a des mois)
+    # mais reproduit à coup sûr sur une base neuve — voir docker-compose.ci.yml
+    # où "down -v" à chaque run CI l'a révélé (E2E : select livreur vide +
+    # bulle de chat jamais visible côté client).
+    command: sh -c "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main"
     ports:
       - "3001:3001"
     depends_on:

@@ -266,6 +266,30 @@ navigateur, alors que les logs des conteneurs paraissent normaux.
   si le catalogue existe déjà). Enregistré via `globalSetup` dans
   `playwright.config.ts`.
 
+- **`backend/prisma/seed.ts` (les rôles) n'était en fait JAMAIS exécuté**
+  (21/09/2026) : la note ci-dessus disait "ne crée que les rôles", ce qui
+  laissait croire que ce seed tournait bien — faux. La commande de démarrage
+  du conteneur backend (`docker-compose.yml` ET `docker-compose.ci.yml`)
+  était `npx prisma migrate deploy && node dist/src/main` : **aucune étape
+  n'appelait jamais `prisma db seed`**. `migrate deploy` n'exécute PAS le
+  seed automatiquement (seul `migrate dev` le fait). Conséquence : sur une
+  base neuve, la table `Role` reste vide, donc `AuthService.syncUser` (tout
+  login déclenche un upsert `Utilisateur` avec `roleId: role?.idRole`) crée
+  systématiquement des comptes avec `roleId = null`. Invisible en local
+  (volume Postgres persistant depuis des mois, seedé une fois à la main très
+  tôt dans le projet), mais reproductible à 100% sur CI (`down -v` à chaque
+  run) : le `<select>` "assigner un livreur" de `/admin/commandes` restait
+  vide (`livreurs = utilisateurs.filter(u => u.role?.name === "livreur")`
+  ne trouve rien), et la bulle de chat client ne s'affichait jamais
+  (`MessagesService.getSupportContact()` ne trouve aucun admin). Deux specs
+  Playwright différents plantaient là-dessus depuis plusieurs runs CI sans
+  que la vraie cause soit identifiée. **Corrigé** : la commande de démarrage
+  des deux fichiers Compose appelle maintenant `node dist/prisma/seed.js`
+  (le seed compilé, pas `ts-node` — absent des dépendances de prod de
+  l'image) entre `migrate deploy` et le démarrage de l'app. Idempotent
+  (`upsert` par nom), donc sans risque à rejouer sur une base qui a déjà les
+  rôles.
+
 ## Comptes de test
 
 | Email | Rôle | Mot de passe |

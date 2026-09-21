@@ -51,15 +51,15 @@ test.describe("Messagerie temps réel client <-> admin", () => {
 
       // Client ouvre la bulle de chat flottante (montée globalement dans
       // layout.tsx) — elle ne rend rien tant que GET /messages/contact n'a
-      // pas résolu (voir ChatWidget : "if (!contact) return null"). Timeout
-      // à 30s (pas 15s) : ce test ouvre DEUX sessions authentifiées en
-      // parallèle (admin + client) sur la même stack Docker CI partagée
-      // (2 vCPU) — vu en CI (run #34) un dépassement net de 15s ici alors
-      // que le même test passe en ~9s en local, cohérent avec un simple
-      // ralentissement SSR/session sous charge plutôt qu'un vrai bug
-      // (`/messages/contact` répond bien, juste plus lentement). test.slow()
-      // ci-dessus triple le timeout du test global mais PAS les timeouts
-      // explicites comme celui-ci, d'où l'ajustement manuel.
+      // pas résolu (voir ChatWidget : "if (!contact) return null"). A échoué
+      // en CI (run #34) en butant sur 15s alors que le même test passe en
+      // ~9s en local : cause racine identifiée et corrigée dans
+      // docker-compose(.ci).yml (seed Prisma manquant au démarrage du
+      // backend → table Role vide sur une base neuve →
+      // MessagesService.getSupportContact() ne trouve jamais l'admin). 30s
+      // gardé quand même comme marge de sécurité (2 sessions authentifiées
+      // en parallèle sur la stack Docker CI partagée) plutôt que de revenir
+      // à 15s pile.
       await clientPage.goto("/");
       const bulleChat = clientPage.getByRole("button", { name: "Ouvrir le chat" });
       await expect(bulleChat).toBeVisible({ timeout: 30_000 });

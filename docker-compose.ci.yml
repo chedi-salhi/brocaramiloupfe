@@ -74,7 +74,11 @@ services:
       PAYPAL_CURRENCY: USD
       PAYPAL_TND_TO_USD_RATE: "0.32"
       FRONTEND_URL: http://keycloak:3000
-    command: sh -c "npx prisma migrate deploy && node dist/src/main"
+    # dist/prisma/seed.js : voir le commentaire équivalent dans
+    # docker-compose.yml — cette étape manquait ici, c'est la cause racine du
+    # <select> livreur vide et de la bulle de chat jamais visible en E2E
+    # (table Role jamais peuplée sur la base CI, toujours neuve).
+    command: sh -c "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main"
     ports:
       - "3001:3001"
     depends_on:
