@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { ALLOWED_ORIGINS } from './common/cors-origins';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -10,9 +11,11 @@ async function bootstrap() {
   // keycloak:3000 pour le frontend conteneurisé — keycloak:3000 est la
   // valeur réellement utilisée (voir docker-compose.yml, NEXTAUTH_URL), pour
   // que l'app et Keycloak partagent le même hôte et évitent le blocage de
-  // cookie cross-site pendant la connexion (voir RECOVERY.md).
+  // cookie cross-site pendant la connexion (voir RECOVERY.md). Même liste
+  // que les gateways Socket.io (voir common/cors-origins.ts) — les deux
+  // canaux (REST et WebSocket) doivent accepter les mêmes origines.
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://keycloak:3000'],
+    origin: ALLOWED_ORIGINS,
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

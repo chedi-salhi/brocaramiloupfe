@@ -2,13 +2,14 @@ import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/
 import { Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service';
 import { KeycloakTokenService } from '../common/keycloak-token.service';
+import { ALLOWED_ORIGINS } from '../common/cors-origins';
 
 // Namespace dédié au suivi de commande : pousse une notification au client concerné
 // dès qu'un admin/livreur change l'état d'une commande (appelé par
 // OrdersService.updateStatus via notifyOrderUpdate — voir orders.module.ts).
 @WebSocketGateway({
   namespace: '/tracking',
-  cors: { origin: 'http://localhost:3000', credentials: true },
+  cors: { origin: ALLOWED_ORIGINS, credentials: true },
 })
 export class TrackingGateway implements OnGatewayConnection {
   @WebSocketServer() server: Server;

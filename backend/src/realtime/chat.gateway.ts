@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { KeycloakTokenService } from '../common/keycloak-token.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { ALLOWED_ORIGINS } from '../common/cors-origins';
 
 interface SendMessagePayload {
   destinataireId?: number;
@@ -23,7 +24,7 @@ interface SendMessagePayload {
 // permet de cibler un destinataire précis sans garder de map de sockets à la main.
 @WebSocketGateway({
   namespace: '/chat',
-  cors: { origin: 'http://localhost:3000', credentials: true },
+  cors: { origin: ALLOWED_ORIGINS, credentials: true },
 })
 export class ChatGateway implements OnGatewayConnection {
   @WebSocketServer() server: Server;
