@@ -79,6 +79,19 @@ services:
     # <select> livreur vide et de la bulle de chat jamais visible en E2E
     # (table Role jamais peuplée sur la base CI, toujours neuve).
     command: sh -c "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main"
+    # restart: "on-failure" (absent avant le 22/09/2026) : "db" est un volume
+    # neuf à chaque run CI ("down -v" en fin de job), donc initdb (plusieurs
+    # secondes) peut ne pas être fini quand "prisma migrate deploy" tente sa
+    # connexion ici. "depends_on: - db" (sans condition service_healthy)
+    # attend juste que le CONTENEUR db ait démarré, pas qu'il accepte des
+    # connexions. Sans restart, cet échec (P1001: Can't reach database
+    # server) arrêtait le conteneur backend pour de bon -> tout le reste de
+    # la stack (frontend, dont les pages font du SSR vers l'API) restait
+    # cassé jusqu'au timeout de 5 min de l'étape "Attendre que le frontend
+    # et Keycloak répondent". docker-compose.yml (dev) a ce même risque mais
+    # "restart: unless-stopped" l'absorbe déjà depuis le début — la même
+    # logique manquait ici.
+    restart: "on-failure"
     ports:
       - "3001:3001"
     depends_on:
