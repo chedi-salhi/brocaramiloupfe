@@ -299,3 +299,61 @@ fonctionner normalement, comme avant leur ajout).
 Une fois configuré, chaque run du job `docker-build` publie
 `<DOCKERHUB_USERNAME>/brocaramilou-backend` et `.../brocaramilou-frontend`,
 tagués `latest` et avec le SHA du commit.
+
+## CI/CD : pipeline Jenkins (démonstration)
+
+Un `Jenkinsfile` à la racine et un service `jenkins` dans
+`docker-compose.yml` complètent la CI GitHub Actions — **sans la
+remplacer**. Objectif : montrer la maîtrise de Jenkins (agents Docker,
+credentials, pipeline déclaratif) pour la soutenance ; la CI réellement
+utilisée à chaque push/PR reste GitHub Actions + SonarQube Cloud.
+
+### Démarrage
+
+```
+docker compose up -d --build jenkins
+```
+
+Premier démarrage : build de l'image (installe le CLI Docker, voir
+`jenkins/Dockerfile`) puis les plugins listés dans `jenkins/plugins.txt` —
+peut prendre plusieurs minutes, comme pour `backend`/`frontend`.
+
+### Configuration initiale (une seule fois, dans le navigateur — pas
+automatisable)
+
+1. Récupérer le mot de passe admin généré au premier démarrage :
+   ```
+   docker exec brocaramiloupfe-jenkins-1 cat /var/jenkins_home/secrets/initialAdminPassword
+   ```
+2. Ouvrir `http://127.0.0.1:8081` (pas `localhost`, voir piège IPv6
+   ci-dessus), coller le mot de passe.
+3. Écran plugins : les plugins nécessaires sont déjà installés (image
+   custom) — choisir "Install selected" avec la sélection par défaut ou
+   passer directement à la suite si l'écran le permet.
+4. Créer le compte admin (nom/mot de passe de ton choix — usage local
+   uniquement, pas exposé hors de la machine).
+5. Ajouter les credentials nécessaires au push Docker Hub : *Manage
+   Jenkins* → *Credentials* → *System* → *Global credentials* → *Add
+   Credentials* :
+   - Kind : *Username with password*
+   - Username : ton identifiant Docker Hub
+   - Password : le même access token que pour GitHub Actions (voir section
+     précédente — pas le mot de passe du compte)
+   - ID : **`dockerhub-credentials`** (doit correspondre exactement au nom
+     utilisé dans `Jenkinsfile`)
+6. Créer le job : *New Item* → nom libre (ex. `brocaramilou-pipeline`) →
+   *Pipeline* → dans la config du job, section *Pipeline* → *Definition* :
+   *Pipeline script from SCM* → *SCM* : Git → URL du repo → *Script Path* :
+   `Jenkinsfile` (déjà la valeur par défaut).
+7. *Build with Parameters* → laisser `PUSH_TO_DOCKERHUB` décoché pour un
+   premier essai (build + tests + images locales seulement), le cocher une
+   fois les credentials de l'étape 5 en place pour tester la publication.
+
+### Pourquoi ce n'est pas dans la CI automatique
+
+Faire tourner Jenkins en continu en plus de GitHub Actions n'apporte rien
+pour ce projet (double exécution des mêmes builds/tests) — c'est un choix
+assumé de garder GitHub Actions comme pipeline principale (gratuite, déjà
+intégrée aux PR, zéro maintenance d'infrastructure) et de présenter Jenkins
+comme une alternative maîtrisée plutôt qu'un doublon actif. Voir le
+paragraphe "choix technologiques" du rapport pour l'argumentaire complet.

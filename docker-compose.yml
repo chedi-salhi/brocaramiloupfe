@@ -136,8 +136,29 @@ services:
     depends_on:
       - prometheus
 
+  jenkins:
+    build: ./jenkins
+    restart: unless-stopped
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      # Socket Docker de l'hôte monté tel quel : Jenkins pilote le Docker
+      # Desktop de la machine plutôt que d'en faire tourner un second
+      # (Docker-in-Docker), plus lourd et pas nécessaire ici. Sur Windows,
+      # Docker Desktop expose ce socket aux conteneurs Linux sans réglage
+      # supplémentaire.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      # 8081 côté hôte : 8080 est déjà pris par Keycloak.
+      - "8081:8080"
+      # Port des agents Jenkins distants — inutile pour ce projet (un seul
+      # nœud, le contrôleur), gardé au cas où un agent serait ajouté plus tard.
+      - "50000:50000"
+
 volumes:
   db_data:
   keycloak_data:
   prometheus_data:
   grafana_data:
+  jenkins_home:
