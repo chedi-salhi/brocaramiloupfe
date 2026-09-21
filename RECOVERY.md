@@ -279,6 +279,38 @@ navigateur, alors que les logs des conteneurs paraissent normaux.
 (Mots de passe temporaires — à changer depuis le profil une fois soutenance/
 démo passée.)
 
+## Test de charge (k6)
+
+Répond au point "Tests de charge (concurrence utilisateur, base de données)"
+du cahier des charges. Script : `load-test/k6-browse.js` — simule des
+visiteurs qui parcourent le catalogue en simultané (catégories, produits,
+recherche, fiche produit), le parcours public le plus fréquent du site.
+
+**Prérequis** : la stack tourne (`docker compose up -d`), au moins quelques
+produits en base (catalogue de démo ou données réelles).
+
+**Exécution** (aucune installation nécessaire, via l'image Docker officielle
+k6) :
+
+```
+docker run --rm -e BASE_URL=http://host.docker.internal:3001 -v "${PWD}/load-test:/scripts" grafana/k6 run /scripts/k6-browse.js
+```
+
+`host.docker.internal` permet au conteneur k6 d'atteindre le port 3001
+publié par `docker-compose.yml` sur la machine hôte, sans rejoindre le
+réseau Docker du projet.
+
+**Lecture des résultats** : k6 affiche un résumé en fin d'exécution — les
+métriques clés sont `http_req_duration` (latence, avec p95/p99) et
+`http_req_failed` (taux d'erreurs). Le script définit des seuils
+(`thresholds`) : moins de 1% d'erreurs et p95 sous 800ms — si dépassés, k6
+termine avec un code de sortie non nul, pratique pour un futur job CI dédié.
+Une latence qui augmente nettement pendant le plateau (20 visiteurs
+simultanés, 40s) indique une contention côté Postgres (requêtes `ILIKE` non
+indexées, pool de connexions Prisma trop petit, etc.) — à mentionner dans le
+rapport même si le résultat est déjà bon, ça montre une vraie analyse plutôt
+qu'un test coché sans lecture.
+
 ## CI/CD : publication Docker Hub
 
 Le job `docker-build` de `ci.yml` publie les images sur Docker Hub après
