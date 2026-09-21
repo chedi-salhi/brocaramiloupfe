@@ -45,7 +45,26 @@ export class EmailService {
       return;
     }
 
-    await this.transporter.sendMail({ from: this.from, to, subject, text, attachments });
+    // L'envoi d'email est un effet de bord "best effort" : plusieurs
+    // appelants (confirmCashPayment, captureOnlinePayment...) écrivent déjà
+    // en base AVANT d'envoyer l'email de notification — si sendMail() rejette
+    // (SMTP injoignable/mal configuré) sans être rattrapé ici, l'exception
+    // remonte jusqu'au controller et fait échouer toute la requête avec un
+    // 500, alors que l'action métier (paiement confirmé, stock décrémenté...)
+    // a déjà réussi. Reproduit en CI (22/09/2026) : EMAIL_HOST/USER/PASS sont
+    // tous renseignés dans docker-compose.ci.yml (valeurs bidon), donc un
+    // vrai transporteur nodemailer est créé (voir constructeur ci-dessus) et
+    // sendMail() échoue pour de vrai contre smtp.example.invalid — ce qui
+    // annulait la confirmation cash/carte vue côté utilisateur alors que le
+    // paiement était bel et bien enregistré. Même logique déjà appliquée par
+    // AuthService.sendVerificationEmail à son propre appel ; centralisée ici
+    // pour couvrir tous les appelants (paiement, facture, statut commande,
+    // annonces) sans dépendre de chaque site d'appel pour s'en souvenir.
+    try {
+      await this.transporter.sendMail({ from: this.from, to, subject, text, attachments });
+    } catch (err) {
+      this.logger.error(`Échec de l'envoi d'email à ${to} (${subject})`, err as Error);
+    }
   }
 
   sendPaymentConfirmation(to: string, success: boolean, montant: number) {
