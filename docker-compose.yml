@@ -29,15 +29,26 @@ services:
     # exactement ce qui est arrivé le 19/07/2026 pendant un dépannage
     # Docker/WSL2, realm entièrement perdu.
     #
-    # ./keycloak:/opt/keycloak/data/import : filet de sécurité pour ce
-    # scénario. Réexporter avec export-keycloak-realm.ps1 après toute
-    # modification du realm (nouveau client, rôle, etc.) pour que
-    # realm-export.json reste à jour ; en cas de perte du volume, un simple
-    # "docker compose up" recrée le realm/clients/rôles automatiquement
-    # (les comptes utilisateurs restent à recréer via recreate-keycloak-users.ps1).
+    # ./keycloak/realm-export.json (fichier précis, PAS tout le dossier) :
+    # filet de sécurité pour ce scénario. Réexporter avec
+    # export-keycloak-realm.ps1 après toute modification du realm (nouveau
+    # client, rôle, etc.) pour que realm-export.json reste à jour ; en cas de
+    # perte du volume, un simple "docker compose up" recrée le
+    # realm/clients/rôles automatiquement (les comptes utilisateurs restent à
+    # recréer via recreate-keycloak-users.ps1).
+    #
+    # 21/09/2026 : montait tout ./keycloak (pas juste ce fichier), qui
+    # contient aussi ci-realm-export.json (ajouté pour la CI) — celui-ci
+    # définit le MÊME realm "brocaramilou" avec un secret client jetable
+    # ("ci-e2e-throwaway-secret-do-not-use-in-prod"). Keycloak importe tous
+    # les fichiers du dossier et n'écrase jamais une entité déjà créée ; sur
+    # un volume neuf, ci-realm-export.json passait avant realm-export.json
+    # (ordre alphabétique) et son secret gagnait, cassant la connexion locale
+    # (NextAuth : "unauthorized_client, Invalid client or Invalid client
+    # credentials", .env jamais mis à jour car il n'a pas besoin de l'être).
     volumes:
       - keycloak_data:/opt/keycloak/data
-      - ./keycloak:/opt/keycloak/data/import
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
 
   backend:
     build: ./backend
