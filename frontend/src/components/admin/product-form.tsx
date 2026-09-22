@@ -8,6 +8,10 @@ import { resolveMediaUrl } from "@/lib/media";
 import type { Categorie, Produit } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 
+// Unités courantes proposées dans le select ; "Autre" bascule sur un champ
+// texte libre pour les cas particuliers (ex: "Rouleau", "Carton de 12").
+const UNITES_COURANTES = ["Unité", "Kg", "L", "Pc", "Boîte", "Sachet"];
+
 export function ProductForm({
   produit,
   categories,
@@ -29,6 +33,14 @@ export function ProductForm({
     produit?.categorieId?.toString() ?? categories[0]?.idCategorie?.toString() ?? "",
   );
   const [imageUrl, setImageUrl] = useState(produit?.imageUrl ?? "");
+  const uniteInitiale = produit?.unite ?? "Unité";
+  const [uniteChoice, setUniteChoice] = useState(
+    UNITES_COURANTES.includes(uniteInitiale) ? uniteInitiale : "Autre",
+  );
+  const [uniteCustom, setUniteCustom] = useState(
+    UNITES_COURANTES.includes(uniteInitiale) ? "" : uniteInitiale,
+  );
+  const unite = uniteChoice === "Autre" ? uniteCustom : uniteChoice;
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +72,7 @@ export function ProductForm({
       stock: Number(stock),
       categorieId: Number(categorieId),
       imageUrl: imageUrl || undefined,
+      unite: unite || "Unité",
     };
 
     try {
@@ -150,6 +163,36 @@ export function ProductForm({
             className="w-full border border-border rounded-md p-2 mt-1 bg-surface focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
           />
         </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-sm">
+          Unité (facture)
+          <select
+            value={uniteChoice}
+            onChange={(e) => setUniteChoice(e.target.value)}
+            className="w-full border border-border rounded-md p-2 mt-1 bg-surface focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
+          >
+            {UNITES_COURANTES.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+            <option value="Autre">Autre...</option>
+          </select>
+        </label>
+        {uniteChoice === "Autre" && (
+          <label className="text-sm">
+            Précise l&apos;unité
+            <input
+              required
+              value={uniteCustom}
+              onChange={(e) => setUniteCustom(e.target.value)}
+              placeholder="ex: Rouleau"
+              className="w-full border border-border rounded-md p-2 mt-1 bg-surface focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
+            />
+          </label>
+        )}
       </div>
 
       <label className="text-sm">

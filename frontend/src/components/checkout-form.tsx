@@ -34,6 +34,20 @@ export function CheckoutForm() {
         method: "POST",
         body: JSON.stringify({ adresseLivraison: adresse, methodePaiement: methode }),
       });
+
+      if (methode === "EN_LIGNE") {
+        // La commande existe mais reste PENDING tant que le paiement PayPal
+        // n'est pas capturé (voir PaymentsService.initiateOnlinePayment) —
+        // on quitte l'app le temps du checkout PayPal, pas de redirection
+        // vers /client/commandes ici.
+        const { approvalUrl } = await api<{ approvalUrl: string }>(
+          `/payments/${commande.idCommande}/initiate`,
+          { method: "POST" },
+        );
+        window.location.href = approvalUrl;
+        return;
+      }
+
       router.push(`/client/commandes/${commande.idCommande}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors de la commande");
@@ -57,6 +71,7 @@ export function CheckoutForm() {
           onChange={(e) => setAdresse(e.target.value)}
           className="w-full border border-border rounded-md p-2 mt-1 bg-surface focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
           placeholder="12 rue de la Paix, Tunis"
+          data-testid="checkout-address-input"
         />
         <span className="text-xs text-foreground/50">
           Pré-remplie depuis ton profil — modifiable ici ponctuellement.
@@ -69,6 +84,7 @@ export function CheckoutForm() {
           value={methode}
           onChange={(e) => setMethode(e.target.value as typeof methode)}
           className="w-full border border-border rounded-md p-2 mt-1 bg-surface focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
+          data-testid="checkout-method-select"
         >
           <option value="A_LA_LIVRAISON">À la livraison</option>
           <option value="EN_LIGNE">En ligne</option>

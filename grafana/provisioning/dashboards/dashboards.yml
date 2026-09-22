@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: "Brocaramilou"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      # Grafana recharge ce dossier automatiquement — ajouter un .json ici
+      # suffit à faire apparaître un nouveau dashboard, sans clic dans l'UI.
+      path: /var/lib/grafana/dashboards

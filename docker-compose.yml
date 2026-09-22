@@ -14,12 +14,173 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     restart: unless-stopped
-    command: start-dev
+    # --import-realm : au démarrage, Keycloak importe automatiquement tout
+    # realm trouvé dans /opt/keycloak/data/import (voir volume ci-dessous).
+    # Les entités déjà existantes ne sont pas écrasées, donc c'est sans
+    # risque même si le volume keycloak_data est intact.
+    command: start-dev --import-realm
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
     ports:
       - "8080:8080"
+    # keycloak_data : persiste la base H2 embarquée entre "down"/"up" (sans
+    # "-v"). Ne protège pas contre un "down -v" ou un volume corrompu — c'est
+    # exactement ce qui est arrivé le 19/07/2026 pendant un dépannage
+    # Docker/WSL2, realm entièrement perdu.
+    #
+    # ./keycloak/realm-export.json (fichier précis, PAS tout le dossier) :
+    # filet de sécurité pour ce scénario. Réexporter avec
+    # export-keycloak-realm.ps1 après toute modification du realm (nouveau
+    # client, rôle, etc.) pour que realm-export.json reste à jour ; en cas de
+    # perte du volume, un simple "docker compose up" recrée le
+    # realm/clients/rôles automatiquement (les comptes utilisateurs restent à
+    # recréer via recreate-keycloak-users.ps1).
+    #
+    # 21/09/2026 : montait tout ./keycloak (pas juste ce fichier), qui
+    # contient aussi ci-realm-export.json (ajouté pour la CI) — celui-ci
+    # définit le MÊME realm "brocaramilou" avec un secret client jetable
+    # ("ci-e2e-throwaway-secret-do-not-use-in-prod"). Keycloak importe tous
+    # les fichiers du dossier et n'écrase jamais une entité déjà créée ; sur
+    # un volume neuf, ci-realm-export.json passait avant realm-export.json
+    # (ordre alphabétique) et son secret gagnait, cassant la connexion locale
+    # (NextAuth : "unauthorized_client, Invalid client or Invalid client
+    # credentials", .env jamais mis à jour car il n'a pas besoin de l'être).
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # Réutilise les secrets déjà présents dans backend/.env (email, Cloudinary,
+    # client Keycloak...) ; seules les valeurs réseau ci-dessous sont
+    # réécrites pour pointer vers les autres conteneurs plutôt que localhost.
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://brocaramilou:brocaramilou@db:5432/brocaramilou?schema=public
+      KEYCLOAK_URL: http://keycloak:8080
+    # migrate deploy (pas "migrate dev") : applique les migrations existantes
+    # sans prompt, safe à rejouer à chaque démarrage. Si "db" n'est pas encore
+    # prêt, le conteneur crashe et "restart: unless-stopped" le relance —
+    # pas de healthcheck ici, juste une boucle de retry simple mais efficace.
+    # dist/src/main.js, pas dist/main.js — voir le commentaire dans
+    # backend/Dockerfile (rootDir TypeScript non explicite).
+    #
+    # dist/prisma/seed.js (idempotent, upsert par nom) : sans cette étape, la
+    # table Role reste vide sur une base fraîche et TOUT utilisateur qui se
+    # synchronise (AuthService.syncUser, déclenché par GET /auth/me) se
+    # retrouve avec roleId = null — donc invisible aux filtres côté rôle
+    # (ex: le <select> "assigner un livreur" de /admin/commandes, ou le
+    # contact support de la messagerie client). Passait inaperçu en local
+    # (volume Postgres persistant, seedé une fois à la main il y a des mois)
+    # mais reproduit à coup sûr sur une base neuve — voir docker-compose.ci.yml
+    # où "down -v" à chaque run CI l'a révélé (E2E : select livreur vide +
+    # bulle de chat jamais visible côté client).
+    command: sh -c "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main"
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+      - keycloak
+
+  frontend:
+    build:
+      context: ./frontend
+      # NEXT_PUBLIC_* : figées dans le bundle navigateur au build, donc en
+      # argument de build ici, pas dans "environment:" (voir Dockerfile).
+      # "keycloak" et "backend" doivent être résolvables par le navigateur
+      # ET par les conteneurs avec le même nom — ajouter dans le fichier
+      # hosts de Windows : "127.0.0.1 keycloak" et "127.0.0.1 backend"
+      # (voir RECOVERY.md). Sans ça, login Keycloak et appels API/panier
+      # côté client échoueront alors que tout marche côté serveur.
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:3001
+        NEXT_PUBLIC_SOCKET_URL: http://backend:3001
+        NEXT_PUBLIC_KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+    restart: unless-stopped
+    env_file: ./frontend/.env.local
+    environment:
+      # "keycloak" et non 127.0.0.1/localhost : le navigateur doit voir l'app
+      # et Keycloak sur le MÊME nom d'hôte (seul le port diffère), sinon ils
+      # sont "cross-site" l'un pour l'autre. Sans HTTPS, Keycloak ne peut pas
+      # envoyer son cookie de session de connexion dans ce cas (log Keycloak :
+      # "cookies... will not be available in cross-origin POST requests"),
+      # et la soumission du formulaire de connexion reste bloquée
+      # indéfiniment. "keycloak" résout déjà vers 127.0.0.1 (fichier hosts,
+      # voir RECOVERY.md), donc http://keycloak:3000 fonctionne pareil que
+      # 127.0.0.1:3000 pour le navigateur, juste "same-site" avec Keycloak.
+      NEXTAUTH_URL: http://keycloak:3000
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+      # "next start" (build de prod, utilisé dans ce conteneur) est plus
+      # strict que "next dev" sur le header Host — sans ça, Auth.js rejette
+      # toutes les requêtes avec "UntrustedHost" et le site paraît injoignable.
+      AUTH_TRUST_HOST: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - keycloak
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    # Scrape config en lecture seule : la conf vit dans le repo (versionnée),
+    # pas dans le volume, pour rester reproductible d'une machine à l'autre.
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    environment:
+      # Login par défaut pour la démo/soutenance ; à changer si ce stack
+      # devait un jour être exposé hors du réseau local.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Désactive l'écran "créer un compte" au premier login — appréciable
+      # pour une démo devant le jury.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Provisioning automatique : datasource Prometheus + dashboards déjà
+      # présents au premier démarrage, sans clic dans l'UI (voir dossier
+      # grafana/provisioning).
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+
+  jenkins:
+    build: ./jenkins
+    restart: unless-stopped
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      # Socket Docker de l'hôte monté tel quel : Jenkins pilote le Docker
+      # Desktop de la machine plutôt que d'en faire tourner un second
+      # (Docker-in-Docker), plus lourd et pas nécessaire ici. Sur Windows,
+      # Docker Desktop expose ce socket aux conteneurs Linux sans réglage
+      # supplémentaire.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      # 8081 côté hôte : 8080 est déjà pris par Keycloak.
+      - "8081:8080"
+      # Port des agents Jenkins distants — inutile pour ce projet (un seul
+      # nœud, le contrôleur), gardé au cas où un agent serait ajouté plus tard.
+      - "50000:50000"
 
 volumes:
   db_data:
+  keycloak_data:
+  prometheus_data:
+  grafana_data:
+  jenkins_home:
