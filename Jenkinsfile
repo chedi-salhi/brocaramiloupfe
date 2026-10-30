@@ -77,7 +77,9 @@ pipeline {
       steps {
         // Le backend applique ses migrations au démarrage et Next.js met
         // quelques secondes à écouter : on réessaie chaque service jusqu'à
-        // ce qu'il réponde (2 minutes maximum).
+        // ce qu'il réponde (2 minutes maximum). 127.0.0.1 et non localhost : dans
+        // le conteneur Alpine, "localhost" se résout d'abord en IPv6 (::1), alors
+        // que Next.js n'écoute qu'en IPv4 (HOSTNAME=0.0.0.0).
         sh '''
           check() {
             service="$1"; url="$2"
@@ -91,8 +93,8 @@ pipeline {
             echo "$service ne répond pas après le déploiement" >&2
             return 1
           }
-          check backend http://localhost:3001/metrics
-          check frontend http://localhost:3000
+          check backend http://127.0.0.1:3001/metrics
+          check frontend http://127.0.0.1:3000
         '''
       }
     }
