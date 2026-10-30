@@ -75,21 +75,24 @@ pipeline {
 
     stage('Vérifier le déploiement') {
       steps {
-        // Le backend applique ses migrations au démarrage : on attend qu'il réponde.
+        // Le backend applique ses migrations au démarrage et Next.js met
+        // quelques secondes à écouter : on réessaie chaque service jusqu'à
+        // ce qu'il réponde (2 minutes maximum).
         sh '''
-          for i in $(seq 1 24); do
-            if docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml exec -T backend wget -q --spider http://localhost:3001/metrics; then
-              echo "Backend opérationnel"
-              break
-            fi
-            if [ "$i" = "24" ]; then
-              echo "Le backend ne répond pas après le déploiement" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-          docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml exec -T frontend wget -q --spider http://localhost:3000
-          echo "Frontend opérationnel"
+          check() {
+            service="$1"; url="$2"
+            for i in $(seq 1 24); do
+              if docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml exec -T "$service" wget -q --spider "$url"; then
+                echo "$service opérationnel"
+                return 0
+              fi
+              sleep 5
+            done
+            echo "$service ne répond pas après le déploiement" >&2
+            return 1
+          }
+          check backend http://localhost:3001/metrics
+          check frontend http://localhost:3000
         '''
       }
     }

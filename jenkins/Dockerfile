@@ -18,6 +18,12 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
+# Le conteneur tourne en root (voir docker-compose.yml) alors que les caches Git
+# de /var/jenkins_home ont été créés par l'utilisateur "jenkins" : sans ceci,
+# Git refuse ces dossiers ("dubious ownership") et le checkout échoue avec
+# "fatal: not in a git directory".
+RUN git config --system --add safe.directory '*'
+
 USER jenkins
 
 # Plugins préinstallés à l'image : évite l'écran "choisir des plugins" au
