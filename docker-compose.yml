@@ -161,6 +161,11 @@ services:
   jenkins:
     build: ./jenkins
     restart: unless-stopped
+    # root : sans ça, l'utilisateur "jenkins" du conteneur n'a pas le droit
+    # d'utiliser le socket Docker de l'hôte monté ci-dessous ("permission
+    # denied ... docker.sock"). Acceptable pour une démo locale, pas pour un
+    # serveur exposé.
+    user: root
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     volumes:

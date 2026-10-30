@@ -29,6 +29,10 @@ pipeline {
   environment {
     // Expose DOCKERHUB_CREDENTIALS_USR et DOCKERHUB_CREDENTIALS_PSW
     DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+    // Valeurs par défaut : au tout premier build d'un job, Jenkins n'a pas
+    // encore enregistré les paramètres déclarés ci-dessus (ils restent vides).
+    IMAGE_TAG = "${params.IMAGE_TAG ?: 'latest'}"
+    COMPOSE_PROJECT = "${params.COMPOSE_PROJECT ?: 'brocaramiloupfe'}"
   }
 
   stages {
@@ -54,7 +58,6 @@ pipeline {
         sh 'echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin'
         sh '''
           export DOCKERHUB_USER="$DOCKERHUB_CREDENTIALS_USR"
-          export IMAGE_TAG="${IMAGE_TAG}"
           docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml pull
         '''
       }
@@ -65,7 +68,6 @@ pipeline {
         // --no-deps : ne touche ni à la base, ni à Keycloak, ni à la supervision.
         sh '''
           export DOCKERHUB_USER="$DOCKERHUB_CREDENTIALS_USR"
-          export IMAGE_TAG="${IMAGE_TAG}"
           docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml up -d --no-deps backend frontend
         '''
       }
@@ -99,7 +101,7 @@ pipeline {
       sh 'rm -rf deploy'
       sh 'docker logout || true'
     }
-    success { echo "Déploiement réussi (tag ${params.IMAGE_TAG})." }
+    success { echo "Déploiement réussi (tag ${env.IMAGE_TAG})." }
     failure { echo 'Déploiement échoué : voir les logs ci-dessus.' }
   }
 }
