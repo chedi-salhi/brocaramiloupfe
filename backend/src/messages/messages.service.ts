@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { ChatGateway } from '../realtime/chat.gateway';
 
 @Injectable()
 export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   // Historique direct entre l'admin connecté et un utilisateur donné — pas de
@@ -29,14 +31,9 @@ export class MessagesService {
       orderBy: { createdAt: 'asc' },
     });
 
-    await this.prisma.message.updateMany({
-      where: {
-        expediteurId: autreUtilisateurId,
-        destinataireId: moi.idUtilisateur,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
+    // Marque lus (isRead + readAt + deliveredAt) et prévient l'expéditeur en
+    // direct pour que ses coches passent au bleu.
+    await this.chatGateway.markThreadRead(moi.idUtilisateur, autreUtilisateurId);
 
     return messages;
   }
@@ -56,6 +53,22 @@ export class MessagesService {
     ]);
 
     return { count: direct + broadcasts };
+  }
+
+  // Non-lus par expéditeur (pastille dans la liste des conversations) + non-lus des annonces.
+  async getUnreadBySender(tokenUser: AuthenticatedUser) {
+    const moi = await this.authService.syncUser(tokenUser);
+    const [groupes, broadcasts] = await Promise.all([
+      this.prisma.message.groupBy({
+        by: ['expediteurId'],
+        where: { destinataireId: moi.idUtilisateur, isRead: false, isBroadcast: false },
+        _count: { _all: true },
+      }),
+      this.prisma.messageLecture.count({ where: { utilisateurId: moi.idUtilisateur, isRead: false } }),
+    ]);
+    const bySender: Record<number, number> = {};
+    for (const g of groupes) bySender[g.expediteurId] = g._count._all;
+    return { bySender, broadcasts };
   }
 
   // Le contact "support" affiché côté client/livreur : le premier compte admin

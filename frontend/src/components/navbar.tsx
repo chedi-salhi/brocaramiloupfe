@@ -3,11 +3,11 @@
 import { useSession, signIn } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { fullSignOut } from "@/lib/full-sign-out";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
 import { CartBadge } from "@/components/cart-badge";
+import { UserMenu } from "@/components/user-menu";
 
 function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   const pathname = usePathname();
@@ -69,28 +69,23 @@ export function Navbar() {
                 Panier
                 <CartBadge />
               </NavLink>
-              <NavLink href="/client/profil">Profil</NavLink>
             </>
           )}
           {roles.includes("livreur") && (
             <>
               <NavLink href="/livreur">Livraisons</NavLink>
-              <NavLink href="/livreur/profil">Profil</NavLink>
             </>
           )}
           {roles.includes("admin") && (
             <>
               <NavLink href="/admin">Administration</NavLink>
-              <NavLink href="/admin/parametres">Paramètres</NavLink>
             </>
           )}
 
           {status === "authenticated" && <NotificationBell />}
 
           {status === "authenticated" ? (
-            <Button variant="outline" onClick={() => fullSignOut(session?.idToken)}>
-              Déconnexion
-            </Button>
+            <UserMenu />
           ) : (
             <>
               <Button variant="ghost" onClick={() => signIn("keycloak")}>

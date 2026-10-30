@@ -8,12 +8,15 @@ import { PrismaService } from '../prisma/prisma.service';
 export class SessionService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // upsert plutôt que findUnique + create : à l'arrivée d'un nouveau visiteur,
+  // le panier ET les favoris appellent cette méthode en parallèle avec le même
+  // token. Avec un "chercher puis créer", les deux requêtes ne trouvent rien
+  // et la seconde échoue sur la contrainte unique (P2002 -> erreur 500).
   async getOrCreate(token: string) {
-    const existing = await this.prisma.session.findUnique({ where: { token } });
-    if (existing) return existing;
-
-    return this.prisma.session.create({
-      data: {
+    return this.prisma.session.upsert({
+      where: { token },
+      update: {},
+      create: {
         token,
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },

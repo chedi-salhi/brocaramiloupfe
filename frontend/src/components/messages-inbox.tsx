@@ -6,6 +6,8 @@ import { useApi } from "@/hooks/use-api";
 import { createSocket } from "@/lib/socket";
 import type { Socket } from "socket.io-client";
 import type { Commande } from "@/lib/types";
+import { MessageTicks, applyStatus, emitRead, onStatus } from "@/components/message-status";
+import { AttachmentButton, MessageAttachment, attachmentPayload, type Attachment } from "@/components/chat-attachment";
 
 interface Contact {
   idUtilisateur: number;
@@ -19,12 +21,20 @@ interface Message {
   expediteurId: number;
   destinataireId: number | null;
   contenu: string;
+  attachmentType?: "TEXTE" | "IMAGE" | "VIDEO" | "FICHIER";
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   createdAt: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 }
 
 interface Annonce {
   idMessage: number;
   contenu: string;
+  attachmentType?: "TEXTE" | "IMAGE" | "VIDEO" | "FICHIER";
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   createdAt: string;
 }
 
@@ -48,7 +58,12 @@ export function MessagesInbox() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [annonces, setAnnonces] = useState<Annonce[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  // Non-lus : par contact (id -> nombre) et pour les annonces diffusées.
+  const [unread, setUnread] = useState<Record<number, number>>({});
+  const [unreadBroadcasts, setUnreadBroadcasts] = useState(0);
+  const selectedRef = useRef<Contact | typeof BROADCASTS | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,22 +103,54 @@ export function MessagesInbox() {
   }, [isLivreur]);
 
   useEffect(() => {
+    api<{ bySender: Record<number, number>; broadcasts: number }>("/messages/unread-by-sender")
+      .then((r) => {
+        // La conversation déjà ouverte (sélectionnée d'office au chargement) est lue : pas de pastille.
+        const cur = selectedRef.current;
+        const bySender = { ...r.bySender };
+        if (cur && cur !== BROADCASTS) delete bySender[cur.idUtilisateur];
+        setUnread(bySender);
+        setUnreadBroadcasts(cur === BROADCASTS ? 0 : r.broadcasts);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  useEffect(() => {
     if (!session?.accessToken) return;
     const socket = createSocket("/chat", session.accessToken);
     socketRef.current = socket;
 
     socket.on("message:new", (msg: Message & { isBroadcast?: boolean }) => {
+      const current = selectedRef.current;
       if (msg.isBroadcast) {
         setAnnonces((prev) => [{ ...msg }, ...prev]);
+        if (current !== BROADCASTS) setUnreadBroadcasts((n) => n + 1);
         return;
       }
-      setMessages((prev) => {
-        if (prev.some((m) => m.idMessage === msg.idMessage)) return prev;
-        return [...prev, msg];
-      });
+      const fromContact = current && current !== BROADCASTS ? msg.expediteurId === current.idUtilisateur : false;
+      const toContact = current && current !== BROADCASTS ? msg.destinataireId === current.idUtilisateur : false;
+      if (fromContact || toContact) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.idMessage === msg.idMessage)) return prev;
+          return [...prev, msg];
+        });
+      }
+      if (fromContact) {
+        emitRead(socket, msg.expediteurId); // conversation ouverte : lu tout de suite
+      } else if (msg.expediteurId !== undefined && !toContact) {
+        // Message d'un autre contact : on le signale dans la barre latérale.
+        setUnread((u) => ({ ...u, [msg.expediteurId]: (u[msg.expediteurId] ?? 0) + 1 }));
+      }
     });
+    const offStatus = onStatus(socket, (ev) => setMessages((prev) => applyStatus(prev, ev)));
 
     return () => {
+      offStatus();
       socket.disconnect();
     };
   }, [session?.accessToken]);
@@ -112,6 +159,7 @@ export function MessagesInbox() {
     if (selected === BROADCASTS) {
       api<Annonce[]>("/messages/broadcasts").then((msgs) => {
         setAnnonces(msgs);
+        setUnreadBroadcasts(0);
         window.dispatchEvent(new Event("messages-read"));
       });
       return;
@@ -119,6 +167,7 @@ export function MessagesInbox() {
     if (!selected) return;
     api<Message[]>(`/messages/thread/${selected.idUtilisateur}`).then((msgs) => {
       setMessages(msgs);
+      setUnread((u) => ({ ...u, [selected.idUtilisateur]: 0 }));
       window.dispatchEvent(new Event("messages-read"));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,12 +178,14 @@ export function MessagesInbox() {
   }, [messages, annonces]);
 
   function send() {
-    if (!draft.trim() || !socketRef.current || !selected || selected === BROADCASTS) return;
+    if ((!draft.trim() && !attachment) || !socketRef.current || !selected || selected === BROADCASTS) return;
     socketRef.current.emit("message:send", {
       contenu: draft,
       destinataireId: selected.idUtilisateur,
+      ...attachmentPayload(attachment),
     });
     setDraft("");
+    setAttachment(null);
   }
 
   if (loading) {
@@ -159,7 +210,14 @@ export function MessagesInbox() {
             selected === BROADCASTS ? "bg-brand/10 text-brand font-medium" : "hover:bg-surface-muted"
           }`}
         >
-          📢 Annonces
+          <span className="flex items-center justify-between">
+            <span className={unreadBroadcasts > 0 && selected !== BROADCASTS ? "font-bold" : ""}>📢 Annonces</span>
+            {unreadBroadcasts > 0 && (
+              <span className="ml-2 shrink-0 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-xs font-semibold flex items-center justify-center">
+                {unreadBroadcasts}
+              </span>
+            )}
+          </span>
         </button>
         {contacts.map((c) => (
           <button
@@ -168,13 +226,22 @@ export function MessagesInbox() {
             className={`w-full text-left px-4 py-3 text-sm border-b border-border last:border-b-0 transition-colors ${
               selected !== BROADCASTS && selected?.idUtilisateur === c.idUtilisateur
                 ? "bg-brand/10 text-brand font-medium"
-                : "hover:bg-surface-muted"
+                : unread[c.idUtilisateur] > 0
+                  ? "bg-brand/5 font-bold hover:bg-brand/10"
+                  : "hover:bg-surface-muted"
             }`}
           >
-            <span className="block truncate">
-              {c.prenom} {c.nom}
+            <span className="flex items-center justify-between">
+              <span className="block truncate">
+                {c.prenom} {c.nom}
+              </span>
+            {unread[c.idUtilisateur] > 0 && (
+              <span className="ml-2 shrink-0 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-xs font-semibold flex items-center justify-center">
+                {unread[c.idUtilisateur]}
+              </span>
+            )}
             </span>
-            <span className="text-xs text-foreground/50">{c.label}</span>
+            <span className="text-xs font-normal text-foreground/50">{c.label}</span>
           </button>
         ))}
       </div>
@@ -188,6 +255,7 @@ export function MessagesInbox() {
                   className="max-w-[85%] self-start rounded-lg px-3 py-2 text-sm bg-surface-muted text-foreground"
                 >
                   {a.contenu}
+                  <MessageAttachment message={a} />
                   <div className="text-[10px] mt-1 text-foreground/40">
                     {new Date(a.createdAt).toLocaleString("fr-FR")}
                   </div>
@@ -209,11 +277,13 @@ export function MessagesInbox() {
                     }`}
                   >
                     {m.contenu}
-                    <div className={`text-[10px] mt-1 ${mine ? "text-white/70" : "text-foreground/40"}`}>
+                    <MessageAttachment message={m} />
+                    <div className={`text-[10px] mt-1 flex items-center ${mine ? "justify-end text-white/70" : "text-foreground/40"}`}>
                       {new Date(m.createdAt).toLocaleTimeString("fr-FR", {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
+                      {mine && <MessageTicks message={m} />}
                     </div>
                   </div>
                 );
@@ -222,7 +292,8 @@ export function MessagesInbox() {
         </div>
 
         {selected !== BROADCASTS && (
-          <div className="border-t border-border p-3 flex gap-2">
+          <div className="border-t border-border p-3 flex gap-2 items-end">
+            <AttachmentButton attachment={attachment} onChange={setAttachment} />
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

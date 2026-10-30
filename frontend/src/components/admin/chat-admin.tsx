@@ -6,6 +6,8 @@ import { useApi } from "@/hooks/use-api";
 import { createSocket } from "@/lib/socket";
 import type { Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
+import { MessageTicks, applyStatus, emitRead, onStatus } from "@/components/message-status";
+import { AttachmentButton, MessageAttachment, attachmentPayload, type Attachment } from "@/components/chat-attachment";
 
 interface Contact {
   idUtilisateur: number;
@@ -20,7 +22,12 @@ interface Message {
   destinataireId: number | null;
   isBroadcast: boolean;
   contenu: string;
+  attachmentType?: "TEXTE" | "IMAGE" | "VIDEO" | "FICHIER";
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   createdAt: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 }
 
 export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
@@ -30,8 +37,28 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [broadcastMode, setBroadcastMode] = useState(false);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const [unread, setUnread] = useState<Record<number, number>>({});
+  const selectedIdRef = useRef<number | null>(null);
+  const broadcastRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    selectedIdRef.current = selected?.idUtilisateur ?? null;
+    broadcastRef.current = broadcastMode;
+  }, [selected, broadcastMode]);
+
+  useEffect(() => {
+    api<{ bySender: Record<number, number> }>("/messages/unread-by-sender")
+      .then((r) => {
+        const bySender = { ...r.bySender };
+        if (selectedIdRef.current !== null) delete bySender[selectedIdRef.current];
+        setUnread(bySender);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Connexion socket unique, tant que l'admin est sur cette page.
   useEffect(() => {
@@ -40,13 +67,28 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
     socketRef.current = socket;
 
     socket.on("message:new", (msg: Message) => {
-      setMessages((prev) => {
-        if (prev.some((m) => m.idMessage === msg.idMessage)) return prev;
-        return [...prev, msg];
-      });
+      const currentId = selectedIdRef.current;
+      // Le message appartient-il à la conversation affichée ?
+      const inView = broadcastRef.current
+        ? msg.isBroadcast
+        : !msg.isBroadcast && currentId !== null && (msg.expediteurId === currentId || msg.destinataireId === currentId);
+      if (inView) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.idMessage === msg.idMessage)) return prev;
+          return [...prev, msg];
+        });
+      }
+      if (!msg.isBroadcast && msg.expediteurId === currentId && !broadcastRef.current) {
+        emitRead(socket, msg.expediteurId); // conversation ouverte : lu tout de suite
+      } else if (!msg.isBroadcast && msg.destinataireId !== currentId) {
+        // Message reçu d'un autre contact : pastille dans la liste.
+        setUnread((u) => ({ ...u, [msg.expediteurId]: (u[msg.expediteurId] ?? 0) + 1 }));
+      }
     });
+    const offStatus = onStatus(socket, (ev) => setMessages((prev) => applyStatus(prev, ev)));
 
     return () => {
+      offStatus();
       socket.disconnect();
     };
   }, [session?.accessToken]);
@@ -63,6 +105,7 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
     if (!selected) return;
     api<Message[]>(`/messages/thread/${selected.idUtilisateur}`).then((msgs) => {
       setMessages(msgs);
+      setUnread((u) => ({ ...u, [selected.idUtilisateur]: 0 }));
       window.dispatchEvent(new Event("messages-read"));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -73,16 +116,22 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
   }, [messages]);
 
   function send() {
-    if (!draft.trim() || !socketRef.current) return;
+    if ((!draft.trim() && !attachment) || !socketRef.current) return;
     if (broadcastMode) {
-      socketRef.current.emit("message:send", { contenu: draft, broadcast: true });
+      socketRef.current.emit("message:send", {
+        contenu: draft,
+        broadcast: true,
+        ...attachmentPayload(attachment),
+      });
     } else if (selected) {
       socketRef.current.emit("message:send", {
         contenu: draft,
         destinataireId: selected.idUtilisateur,
+        ...attachmentPayload(attachment),
       });
     }
     setDraft("");
+    setAttachment(null);
   }
 
   return (
@@ -106,13 +155,22 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
             className={`w-full text-left px-4 py-3 text-sm border-b border-border last:border-b-0 transition-colors ${
               !broadcastMode && selected?.idUtilisateur === c.idUtilisateur
                 ? "bg-brand/10 text-brand font-medium"
-                : "hover:bg-surface-muted"
+                : unread[c.idUtilisateur] > 0
+                  ? "bg-brand/5 font-bold hover:bg-brand/10"
+                  : "hover:bg-surface-muted"
             }`}
           >
-            <span className="block truncate">
-              {c.prenom} {c.nom}
+            <span className="flex items-center justify-between">
+              <span className="block truncate">
+                {c.prenom} {c.nom}
+              </span>
+            {unread[c.idUtilisateur] > 0 && (
+              <span className="ml-2 shrink-0 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-xs font-semibold flex items-center justify-center">
+                {unread[c.idUtilisateur]}
+              </span>
+            )}
             </span>
-            <span className="text-xs text-foreground/50">{c.role?.name}</span>
+            <span className="text-xs font-normal text-foreground/50">{c.role?.name}</span>
           </button>
         ))}
       </div>
@@ -131,11 +189,13 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
                 }`}
               >
                 {m.contenu}
-                <div className={`text-[10px] mt-1 ${mine ? "text-white/70" : "text-foreground/40"}`}>
+                <MessageAttachment message={m} />
+                <div className={`text-[10px] mt-1 flex items-center ${mine ? "justify-end text-white/70" : "text-foreground/40"}`}>
                   {new Date(m.createdAt).toLocaleTimeString("fr-FR", {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
+                  {mine && !m.isBroadcast && <MessageTicks message={m} />}
                 </div>
               </div>
             );
@@ -143,7 +203,8 @@ export function ChatAdmin({ contacts }: { contacts: Contact[] }) {
           <div ref={endRef} />
         </div>
 
-        <div className="border-t border-border p-3 flex gap-2">
+        <div className="border-t border-border p-3 flex gap-2 items-end">
+          <AttachmentButton attachment={attachment} onChange={setAttachment} />
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

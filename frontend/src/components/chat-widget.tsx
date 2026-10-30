@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { createSocket } from "@/lib/socket";
 import type { Socket } from "socket.io-client";
+import { MessageTicks, applyStatus, emitRead, onStatus } from "@/components/message-status";
+import { AttachmentButton, MessageAttachment, attachmentPayload, type Attachment } from "@/components/chat-attachment";
 
 interface Contact {
   idUtilisateur: number;
@@ -17,7 +19,12 @@ interface Message {
   expediteurId: number;
   destinataireId: number | null;
   contenu: string;
+  attachmentType?: "TEXTE" | "IMAGE" | "VIDEO" | "FICHIER";
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   createdAt: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 }
 
 // Bulle de chat flottante pour client/livreur : discussion directe avec
@@ -35,9 +42,12 @@ export function ChatWidget() {
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [unread, setUnread] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef(false);
+  const contactIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!shouldShow) return;
@@ -55,16 +65,24 @@ export function ChatWidget() {
         if (prev.some((m) => m.idMessage === msg.idMessage)) return prev;
         return [...prev, msg];
       });
-      setOpen((isOpen) => {
-        if (!isOpen) setUnread((n) => n + 1);
-        return isOpen;
-      });
+      // Bulle ouverte + message du support : lu immédiatement (coches bleues chez l'expéditeur).
+      if (msg.expediteurId === contactIdRef.current) {
+        if (openRef.current) emitRead(socket, msg.expediteurId);
+        else setUnread((n) => n + 1);
+      }
     });
+    const offStatus = onStatus(socket, (ev) => setMessages((prev) => applyStatus(prev, ev)));
 
     return () => {
+      offStatus();
       socket.disconnect();
     };
   }, [shouldShow, session?.accessToken]);
+
+  useEffect(() => {
+    openRef.current = open;
+    contactIdRef.current = contact?.idUtilisateur ?? null;
+  }, [open, contact]);
 
   useEffect(() => {
     if (!contact) return;
@@ -89,12 +107,14 @@ export function ChatWidget() {
   }, [messages, open]);
 
   function send() {
-    if (!draft.trim() || !socketRef.current || !contact) return;
+    if ((!draft.trim() && !attachment) || !socketRef.current || !contact) return;
     socketRef.current.emit("message:send", {
       contenu: draft,
       destinataireId: contact.idUtilisateur,
+      ...attachmentPayload(attachment),
     });
     setDraft("");
+    setAttachment(null);
   }
 
   if (!contact) return null;
@@ -130,13 +150,20 @@ export function ChatWidget() {
                   }`}
                 >
                   {m.contenu}
+                  <MessageAttachment message={m} />
+                  {mine && (
+                    <div className="flex justify-end mt-0.5">
+                      <MessageTicks message={m} />
+                    </div>
+                  )}
                 </div>
               );
             })}
             <div ref={endRef} />
           </div>
 
-          <div className="border-t border-border p-2 flex gap-2">
+          <div className="border-t border-border p-2 flex gap-2 items-end">
+            <AttachmentButton attachment={attachment} onChange={setAttachment} />
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

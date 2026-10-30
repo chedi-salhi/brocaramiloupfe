@@ -45,15 +45,18 @@ export async function loginAs(page: Page, user: TestUser) {
   await page.locator("#password").fill(user.password);
   await page.locator("#kc-login").click();
 
-  // Retour sur l'app : la navbar affiche "Déconnexion" une fois la session
-  // NextAuth établie côté client (le callback OIDC peut prendre un instant).
-  await expect(page.getByRole("button", { name: "Déconnexion" })).toBeVisible({
+  // Retour sur l'app : la navbar affiche le menu utilisateur (avatar + nom) une
+  // fois la session NextAuth établie côté client (le callback OIDC peut
+  // prendre un instant).
+  await expect(page.getByRole("button", { name: "Menu utilisateur" })).toBeVisible({
     timeout: 15_000,
   });
 }
 
 export async function logout(page: Page) {
-  await page.getByRole("button", { name: "Déconnexion" }).click();
+  // "Déconnexion" est dans le menu déroulant de l'utilisateur : on l'ouvre d'abord.
+  await page.getByRole("button", { name: "Menu utilisateur" }).click();
+  await page.getByRole("menuitem", { name: "Déconnexion" }).click();
 
   // fullSignOut() (lib/full-sign-out.ts) fait d'abord signOut({redirect:
   // false}) — qui bascule l'UI en "Connexion" quasi instantanément côté

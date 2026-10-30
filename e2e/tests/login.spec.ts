@@ -12,7 +12,10 @@ test.describe("Connexion Keycloak par rôle", () => {
     await loginAs(page, TEST_USERS.client);
 
     await expect(page.getByRole("link", { name: "Commandes" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Profil" })).toBeVisible();
+    // Le profil est dans le menu utilisateur (avatar), plus dans la navbar.
+    await page.getByRole("button", { name: "Menu utilisateur" }).click();
+    await expect(page.getByRole("menuitem", { name: "Mon profil" })).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("link", { name: "Administration" })).not.toBeVisible();
 
     await logout(page);
@@ -22,7 +25,10 @@ test.describe("Connexion Keycloak par rôle", () => {
     await loginAs(page, TEST_USERS.livreur);
 
     await expect(page.getByRole("link", { name: "Livraisons" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Profil" })).toBeVisible();
+    // Le profil est dans le menu utilisateur (avatar), plus dans la navbar.
+    await page.getByRole("button", { name: "Menu utilisateur" }).click();
+    await expect(page.getByRole("menuitem", { name: "Mon profil" })).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("link", { name: "Panier" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Administration" })).not.toBeVisible();
 
@@ -33,7 +39,10 @@ test.describe("Connexion Keycloak par rôle", () => {
     await loginAs(page, TEST_USERS.admin);
 
     await expect(page.getByRole("link", { name: "Administration" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Paramètres" })).toBeVisible();
+    // Le profil est dans le menu utilisateur (avatar), plus dans la navbar.
+    await page.getByRole("button", { name: "Menu utilisateur" }).click();
+    await expect(page.getByRole("menuitem", { name: "Paramètres" })).toBeVisible();
+    await page.keyboard.press("Escape");
     // proxy.ts redirige "/" -> "/admin" pour ce rôle (voir navbar.tsx :
     // un admin n'a pas de raison de parcourir le catalogue).
     await expect(page).toHaveURL(/\/admin/);

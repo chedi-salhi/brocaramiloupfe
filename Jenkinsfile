@@ -1,17 +1,23 @@
-// Pipeline Jenkins de démonstration ("assurance" pour la soutenance) —
-// ne remplace PAS la CI GitHub Actions (.github/workflows/ci.yml), qui reste
-// la pipeline réellement utilisée à chaque push/PR. Celui-ci prouve la
-// maîtrise de Jenkins sans dupliquer ce que fait déjà GitHub Actions
-// (notamment : pas d'analyse SonarQube Cloud ici, pour éviter un double
-// scan du même projet — voir RECOVERY.md).
+// Pipeline Jenkins de DÉPLOIEMENT (CD) — complète la CI GitHub Actions
+// (.github/workflows/ci.yml) sans la dupliquer :
+//   - GitHub Actions : tests, analyse de qualité, build et publication des
+//     images sur Docker Hub (intégration continue).
+//   - Jenkins (ce fichier) : récupère les images publiées et redéploie le
+//     backend et le frontend (livraison/déploiement continu).
+// Aucun build ni test ici : tout cela a déjà été fait par GitHub Actions.
 pipeline {
-  agent none
+  agent any
 
   parameters {
-    booleanParam(
-      name: 'PUSH_TO_DOCKERHUB',
-      defaultValue: false,
-      description: 'Publier les images sur Docker Hub (nécessite les credentials Jenkins "dockerhub-credentials" — voir RECOVERY.md)'
+    string(
+      name: 'IMAGE_TAG',
+      defaultValue: 'latest',
+      description: 'Tag des images Docker Hub à déployer (latest, ou le SHA d\'un commit pour revenir à une version précise)'
+    )
+    string(
+      name: 'COMPOSE_PROJECT',
+      defaultValue: 'brocaramiloupfe',
+      description: 'Nom du projet Docker Compose du stack existant (voir "docker compose ls" sur la machine)'
     )
   }
 
@@ -20,67 +26,68 @@ pipeline {
     disableConcurrentBuilds()
   }
 
+  environment {
+    // Expose DOCKERHUB_CREDENTIALS_USR et DOCKERHUB_CREDENTIALS_PSW
+    DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+  }
+
   stages {
-    stage('Backend — install, build, tests') {
-      // Agent Docker "sibling" (voir jenkins/Dockerfile) : ce stage tourne
-      // dans un conteneur node:20-alpine jetable, pas dans le conteneur
-      // Jenkins lui-même.
-      agent { docker { image 'node:20-alpine' } }
+    stage('Préparer la configuration') {
       steps {
-        dir('backend') {
-          sh 'npm ci'
-          sh 'npx prisma generate'
-          sh 'npm run build'
-          // Tests unitaires seulement (jest) : pas de DATABASE_URL fournie
-          // ici, donc pas de tests nécessitant une vraie base — cohérent
-          // avec le job "Backend" de la CI GitHub Actions.
-          sh 'npm test -- --ci --coverage'
+        // Les fichiers .env contiennent des secrets : ils ne sont pas dans Git,
+        // Jenkins les fournit via des credentials de type "Secret file".
+        withCredentials([
+          file(credentialsId: 'backend-env', variable: 'BACKEND_ENV'),
+          file(credentialsId: 'frontend-env', variable: 'FRONTEND_ENV')
+        ]) {
+          sh '''
+            mkdir -p deploy
+            cp "$BACKEND_ENV" deploy/backend.env
+            cp "$FRONTEND_ENV" deploy/frontend.env
+          '''
         }
       }
     }
 
-    stage('Frontend — install, build, tests') {
-      agent { docker { image 'node:20-alpine' } }
+    stage('Récupérer les images') {
       steps {
-        dir('frontend') {
-          sh 'npm ci'
-          sh 'npm run build'
-          sh 'npm test -- --ci --coverage'
-        }
-      }
-    }
-
-    stage('Build images Docker') {
-      // Retour sur le contrôleur Jenkins : c'est lui qui a le CLI Docker
-      // installé et le socket de l'hôte monté (docker-compose.yml).
-      agent any
-      steps {
-        sh 'docker build -t brocaramilou-backend:jenkins-${BUILD_NUMBER} ./backend'
+        sh 'echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin'
         sh '''
-          docker build -t brocaramilou-frontend:jenkins-${BUILD_NUMBER} ./frontend \
-            --build-arg NEXT_PUBLIC_API_URL=http://backend:3001 \
-            --build-arg NEXT_PUBLIC_SOCKET_URL=http://backend:3001 \
-            --build-arg NEXT_PUBLIC_KEYCLOAK_ISSUER=http://keycloak:8080/realms/brocaramilou
+          export DOCKERHUB_USER="$DOCKERHUB_CREDENTIALS_USR"
+          export IMAGE_TAG="${IMAGE_TAG}"
+          docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml pull
         '''
       }
     }
 
-    stage('Publier sur Docker Hub') {
-      agent any
-      // Désactivé par défaut (paramètre PUSH_TO_DOCKERHUB) : évite un échec
-      // de pipeline sur une install Jenkins fraîche tant que les credentials
-      // n'ont pas été ajoutés dans l'UI.
-      when { expression { return params.PUSH_TO_DOCKERHUB } }
-      environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
-      }
+    stage('Déployer') {
       steps {
-        sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+        // --no-deps : ne touche ni à la base, ni à Keycloak, ni à la supervision.
         sh '''
-          docker tag brocaramilou-backend:jenkins-${BUILD_NUMBER} $DOCKERHUB_CREDENTIALS_USR/brocaramilou-backend:jenkins-${BUILD_NUMBER}
-          docker push $DOCKERHUB_CREDENTIALS_USR/brocaramilou-backend:jenkins-${BUILD_NUMBER}
-          docker tag brocaramilou-frontend:jenkins-${BUILD_NUMBER} $DOCKERHUB_CREDENTIALS_USR/brocaramilou-frontend:jenkins-${BUILD_NUMBER}
-          docker push $DOCKERHUB_CREDENTIALS_USR/brocaramilou-frontend:jenkins-${BUILD_NUMBER}
+          export DOCKERHUB_USER="$DOCKERHUB_CREDENTIALS_USR"
+          export IMAGE_TAG="${IMAGE_TAG}"
+          docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml up -d --no-deps backend frontend
+        '''
+      }
+    }
+
+    stage('Vérifier le déploiement') {
+      steps {
+        // Le backend applique ses migrations au démarrage : on attend qu'il réponde.
+        sh '''
+          for i in $(seq 1 24); do
+            if docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml exec -T backend wget -q --spider http://localhost:3001/metrics; then
+              echo "Backend opérationnel"
+              break
+            fi
+            if [ "$i" = "24" ]; then
+              echo "Le backend ne répond pas après le déploiement" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          docker compose -p "${COMPOSE_PROJECT}" -f docker-compose.deploy.yml exec -T frontend wget -q --spider http://localhost:3000
+          echo "Frontend opérationnel"
         '''
       }
     }
@@ -88,7 +95,11 @@ pipeline {
 
   post {
     always {
-      echo 'Pipeline Jenkins terminé — setup initial et credentials documentés dans RECOVERY.md.'
+      // Ne pas laisser les secrets dans le workspace Jenkins.
+      sh 'rm -rf deploy'
+      sh 'docker logout || true'
     }
+    success { echo "Déploiement réussi (tag ${params.IMAGE_TAG})." }
+    failure { echo 'Déploiement échoué : voir les logs ci-dessus.' }
   }
 }

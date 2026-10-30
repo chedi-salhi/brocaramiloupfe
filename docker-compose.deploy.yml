@@ -1,0 +1,37 @@
+# Déploiement continu (CD) piloté par Jenkins — voir Jenkinsfile.
+#
+# Ne redéploie QUE le backend et le frontend, à partir des images publiées sur
+# Docker Hub par GitHub Actions (job "docker-build"). Les autres services
+# (db, keycloak, prometheus, grafana) restent ceux de docker-compose.yml, déjà
+# démarrés : Jenkins n'y touche pas (option --no-deps).
+#
+# Ce fichier est utilisé avec le MÊME nom de projet Compose que le stack
+# existant (-p), pour que ces deux services rejoignent son réseau et trouvent
+# "db" et "keycloak" par leur nom.
+#
+# Pas de bind mount (volumes ./...) ici, volontairement : Jenkins pilote le
+# daemon Docker de l'hôte, donc un chemin relatif vu depuis le conteneur Jenkins
+# n'existerait pas côté hôte. Les fichiers d'environnement (secrets) sont lus
+# par la CLI Docker Compose elle-même, ils n'ont pas besoin d'être montés.
+services:
+  backend:
+    image: ${DOCKERHUB_USER}/brocaramilou-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: ./deploy/backend.env
+    environment:
+      DATABASE_URL: postgresql://brocaramilou:brocaramilou@db:5432/brocaramilou?schema=public
+      KEYCLOAK_URL: http://keycloak:8080
+    command: sh -c "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main"
+    ports:
+      - "3001:3001"
+
+  frontend:
+    image: ${DOCKERHUB_USER}/brocaramilou-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: ./deploy/frontend.env
+    environment:
+      NEXTAUTH_URL: http://keycloak:3000
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/brocaramilou
+      AUTH_TRUST_HOST: "true"
+    ports:
+      - "3000:3000"

@@ -29,6 +29,11 @@ export class MessagesController {
     return this.messagesService.getBroadcasts(user);
   }
 
+  @Get('unread-by-sender')
+  getUnreadBySender(@CurrentUser() user: AuthenticatedUser) {
+    return this.messagesService.getUnreadBySender(user);
+  }
+
   // Badge de notification global (navbar), tous rôles confondus.
   @Get('unread-count')
   getUnreadCount(@CurrentUser() user: AuthenticatedUser) {

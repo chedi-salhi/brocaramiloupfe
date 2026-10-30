@@ -6,13 +6,20 @@ import { useApi } from "@/hooks/use-api";
 import { createSocket } from "@/lib/socket";
 import type { Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
+import { MessageTicks, applyStatus, emitRead, onStatus } from "@/components/message-status";
+import { AttachmentButton, MessageAttachment, attachmentPayload, type Attachment } from "@/components/chat-attachment";
 
 interface Message {
   idMessage: number;
   expediteurId: number;
   destinataireId: number | null;
   contenu: string;
+  attachmentType?: "TEXTE" | "IMAGE" | "VIDEO" | "FICHIER";
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   createdAt: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 }
 
 // Chat direct avec le livreur assigné à UNE commande précise (distinct de la
@@ -31,8 +38,10 @@ export function LivreurChat({
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -56,24 +65,33 @@ export function LivreurChat({
         if (prev.some((m) => m.idMessage === msg.idMessage)) return prev;
         return [...prev, msg];
       });
+      if (msg.expediteurId === livreurId && openRef.current) emitRead(socket, livreurId);
     });
+    const offStatus = onStatus(socket, (ev) => setMessages((prev) => applyStatus(prev, ev)));
 
     return () => {
+      offStatus();
       socket.disconnect();
     };
   }, [session?.accessToken, livreurId]);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, open]);
 
   function send() {
-    if (!draft.trim() || !socketRef.current) return;
+    if ((!draft.trim() && !attachment) || !socketRef.current) return;
     socketRef.current.emit("message:send", {
       contenu: draft,
       destinataireId: livreurId,
+      ...attachmentPayload(attachment),
     });
     setDraft("");
+    setAttachment(null);
   }
 
   return (
@@ -102,13 +120,20 @@ export function LivreurChat({
                   }`}
                 >
                   {m.contenu}
+                  <MessageAttachment message={m} />
+                  {mine && (
+                    <div className="flex justify-end mt-0.5">
+                      <MessageTicks message={m} />
+                    </div>
+                  )}
                 </div>
               );
             })}
             <div ref={endRef} />
           </div>
 
-          <div className="border-t border-border p-2 flex gap-2">
+          <div className="border-t border-border p-2 flex gap-2 items-end">
+            <AttachmentButton attachment={attachment} onChange={setAttachment} />
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

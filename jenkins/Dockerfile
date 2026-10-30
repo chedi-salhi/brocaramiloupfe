@@ -2,8 +2,8 @@ FROM jenkins/jenkins:lts-jdk17
 
 USER root
 
-# CLI Docker uniquement (pas le daemon) : les pipelines lancent "docker
-# build/push" en réutilisant le daemon Docker Desktop de l'hôte via le socket
+# CLI Docker + plugin Compose (pas le daemon) : le pipeline de déploiement
+# lance "docker compose pull/up" en réutilisant le daemon Docker Desktop de l'hôte via le socket
 # monté (voir docker-compose.yml, pattern "Docker outside of Docker" — le
 # conteneur Jenkins ne fait pas tourner Docker lui-même, il pilote celui de
 # l'hôte comme le ferait n'importe quel client Docker).
@@ -15,7 +15,7 @@ RUN apt-get update && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
       > /etc/apt/sources.list.d/docker.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
+    apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
 USER jenkins

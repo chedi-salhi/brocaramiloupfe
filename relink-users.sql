@@ -1,5 +1,5 @@
-﻿UPDATE "Utilisateur" SET "keycloakId" = '1a3f6044-e1e0-4a4d-9f75-ee110cb9e6b0' WHERE email = 'chadi5marat@gmail.com';
-UPDATE "Utilisateur" SET "keycloakId" = 'ee8f25f7-3678-438c-b3c6-72c46eacf88d' WHERE email = 'mohemedhedi@gmail.com';
-UPDATE "Utilisateur" SET "keycloakId" = 'f118d11b-c581-474d-bb77-02dec83a3a3e' WHERE email = 'salhi08fares@gmail.com';
-UPDATE "Utilisateur" SET "keycloakId" = '5a996a3c-289b-458a-a5f4-e85d66b584ac' WHERE email = 'testadmin@example.com';
-UPDATE "Utilisateur" SET "keycloakId" = 'ce43e288-efb2-4c93-89d3-c3305885a312' WHERE email = 'salhichedy2@gmail.com';
+UPDATE "Utilisateur" SET "keycloakId" = '0b10e37b-66aa-4685-91b5-1f057f3d2a18' WHERE email = 'chadi5marat@gmail.com';
+UPDATE "Utilisateur" SET "keycloakId" = '25191349-aada-4698-b761-b31be74955e1' WHERE email = 'mohemedhedi@gmail.com';
+UPDATE "Utilisateur" SET "keycloakId" = 'd339ba22-9978-429a-befb-7fd96099148d' WHERE email = 'salhi08fares@gmail.com';
+UPDATE "Utilisateur" SET "keycloakId" = '31d85f22-d5c5-4336-8700-8a4a8ebda17a' WHERE email = 'testadmin@example.com';
+UPDATE "Utilisateur" SET "keycloakId" = '98e7fe0d-740f-4849-b89a-7e5b20d9dd9a' WHERE email = 'salhichedy2@gmail.com';

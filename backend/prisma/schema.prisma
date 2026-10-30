@@ -26,6 +26,13 @@ enum EtatCommande {
   ANNULEE
 }
 
+enum AttachmentType {
+  TEXTE
+  IMAGE
+  VIDEO
+  FICHIER
+}
+
 enum StatutPaiement {
   PENDING
   SUCCESS
@@ -178,8 +185,13 @@ model Message {
   destinataireId Int?     // null = message diffusé à tous les utilisateurs
   isBroadcast    Boolean  @default(false)
   contenu        String
+  attachmentType AttachmentType @default(TEXTE) // TEXTE = message sans pièce jointe
+  attachmentUrl  String?  // URL Cloudinary de l'image / vidéo / PDF joint
+  attachmentName String?  // nom d'origine du fichier (affiché pour les PDF)
   dateEnvoi      DateTime @default(now())
   isRead         Boolean  @default(false) // pertinent uniquement pour un message direct (destinataireId non nul)
+  deliveredAt    DateTime? // message direct : date de réception (destinataire connecté) -> double coche grise
+  readAt         DateTime? // message direct : date de lecture -> double coche bleue
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
